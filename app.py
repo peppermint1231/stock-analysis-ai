@@ -1154,17 +1154,16 @@ with tab_kr:
                 # 최대 10일 전까지 거슬러 올라가며 최근 거래일 탐색 (긴 연휴 대응)
                 for _ in range(10):
                     d_str = check_date.strftime("%Y%m%d")
-                    top_df = get_krx_data_cached(d_str)
+                    temp_df = get_krx_data_cached(d_str)
 
-                    if not top_df.empty:
-                        # pykrx는 휴장일에도 DataFrame을 반환하지만 모든 값이 0으로 채워짐
-                        vol_col = '거래량' if '거래량' in top_df.columns else 'Volume'
-                        if vol_col in top_df.columns and top_df[vol_col].sum() > 0:
-                            today_str = d_str
-                            break
-                        elif vol_col not in top_df.columns:
-                            today_str = d_str
-                            break
+                    if not temp_df.empty:
+                        # pykrx는 공휴일에도 DataFrame을 반환할 수 있으나 유효한 컬럼이 있는지 확인
+                        required_cols = ['시가', '고가', '저가', '종가', '거래량']
+                        if all(c in temp_df.columns for c in required_cols):
+                            if temp_df['거래량'].sum() > 0:
+                                today_str = d_str
+                                top_df = temp_df
+                                break
 
                     check_date -= timedelta(days=1)
 
