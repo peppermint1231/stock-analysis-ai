@@ -1136,7 +1136,11 @@ with tab_kr:
 
     @st.cache_data(ttl=60)
     def get_krx_data_cached(d_str):
-        return stock.get_market_ohlcv(d_str, market="ALL")
+        df = stock.get_market_ohlcv(d_str, market="ALL")
+        if not df.empty:
+            rename_dict = {'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가', 'Volume': '거래량', 'Value': '거래대금', 'Fluctuation': '등락률', 'Market Cap': '시가총액'}
+            df = df.rename(columns=rename_dict)
+        return df
 
     try:
         # 만약 기존에 캐시된 데이터가 모두 0(휴장일 데이터)이라면 세션에서 삭제하여 다시 불러오도록 함
@@ -1157,10 +1161,6 @@ with tab_kr:
                     temp_df = get_krx_data_cached(d_str)
 
                     if not temp_df.empty:
-                        # Rename English columns to Korean if pykrx returns English by default
-                        rename_dict = {'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가', 'Volume': '거래량', 'Value': '거래대금', 'Fluctuation': '등락률', 'Market Cap': '시가총액'}
-                        temp_df = temp_df.rename(columns=rename_dict)
-
                         # pykrx는 공휴일에도 DataFrame을 반환할 수 있으나 유효한 컬럼이 있는지 확인
                         required_cols = ['시가', '고가', '저가', '종가', '거래량']
                         if all(c in temp_df.columns for c in required_cols):
