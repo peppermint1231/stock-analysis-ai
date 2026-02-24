@@ -10,7 +10,8 @@ import io
 import time
 import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
-
+import threading
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 # Page Configuration
 st.set_page_config(layout="wide", page_title="Stock Technical Analysis")
 
@@ -1005,10 +1006,8 @@ with tab_kr:
         df_subset['is_breakout'] = breakouts
         return df_subset
 
-    def render_horizontal_candles(df, ticker_map, max_pct=30.0):
-        # Fetch target date from session
-        target_date_str = st.session_state.get('krx_today_str', datetime.today().strftime("%Y%m%d"))
-
+    @st.cache_data(show_spinner="랭킹 차트 로딩 중...", ttl=300)
+    def render_horizontal_candles(df, ticker_map, target_date_str, max_pct=30.0):
         html = '<div style="font-family: sans-serif; font-size: 14px; margin-top: 10px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 30px;">'
         for ticker in df.index:
             try:
@@ -1207,8 +1206,20 @@ with tab_kr:
                 styler = styler.apply(color_name, axis=1)
 
                 use_candle_vol = st.toggle("📊 거래량 탑 10: 가로 캔들 차트로 보기", key="toggle_kr_vol")
+                
+                # Background preloading
+                if not use_candle_vol:
+                    def preload_vol_candles():
+                        try:
+                            render_horizontal_candles(top_10, ticker_to_name, today_str, max_pct=30.0)
+                        except Exception:
+                            pass
+                    t1 = threading.Thread(target=preload_vol_candles)
+                    add_script_run_ctx(t1)
+                    t1.start()
+
                 if use_candle_vol:
-                    html_vol = render_horizontal_candles(top_10, ticker_to_name, max_pct=30.0)
+                    html_vol = render_horizontal_candles(top_10, ticker_to_name, today_str, max_pct=30.0)
                     components.html(html_vol, height=900, scrolling=True)
                 else:
                     st.dataframe(styler, column_config=column_config)
@@ -1240,8 +1251,20 @@ with tab_kr:
                     styler_val = styler_val.apply(color_name, axis=1)
 
                     use_candle_val = st.toggle("📊 거래대금 탑 10: 가로 캔들 차트로 보기", key="toggle_kr_val")
+
+                    # Background preloading
+                    if not use_candle_val:
+                        def preload_val_candles():
+                            try:
+                                render_horizontal_candles(top_10_val, ticker_to_name, today_str, max_pct=30.0)
+                            except Exception:
+                                pass
+                        t2 = threading.Thread(target=preload_val_candles)
+                        add_script_run_ctx(t2)
+                        t2.start()
+
                     if use_candle_val:
-                        html_val = render_horizontal_candles(top_10_val, ticker_to_name, max_pct=30.0)
+                        html_val = render_horizontal_candles(top_10_val, ticker_to_name, today_str, max_pct=30.0)
                         components.html(html_val, height=900, scrolling=True)
                     else:
                         st.dataframe(styler_val, column_config=column_config)
@@ -1254,9 +1277,8 @@ with tab_kr:
 
         render_krx_ranking(top_df, today_str, krx_time_str, ticker_to_name, numeric_cols, display_cols)
     except Exception as e:
-        st.warning(f"랭킹 데이터를 가져오는데 실패했습니다: {e}")
-
-    # Input (Selectbox)
+        import traceback
+        st.warning(f"랭킹 데이터를 가져오는데 실패했습니다: {e}\n\n```python\n{traceback.format_exc()}\n```")    # Input (Selectbox)
     st.write("---")
     st.subheader("📊 개별 종목 분석")
 

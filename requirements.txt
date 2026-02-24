@@ -4,10 +4,9 @@ pandas
 numpy
 plotly
 requests
-pykrx
+pykrx>=1.2.0
 google-generativeai
 lxml
 openpyxl
 beautifulsoup4
 streamlit-autorefresh
-setuptools<70.0.0
