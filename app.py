@@ -2,7 +2,12 @@ import streamlit as st
 import yfinance as yf
 from pykrx import stock
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Korean Standard Time (UTC+9)
+_KST = timezone(timedelta(hours=9))
+def now_kst(): return datetime.now(tz=_KST)
+def today_kst(): return datetime.now(tz=_KST).replace(tzinfo=None)
 import pandas as pd
 import numpy as np
 import requests
@@ -371,7 +376,7 @@ def get_major_indices_v2():
 data = get_major_indices_v2()
 
 if data:
-    st.sidebar.caption(f"기준: {datetime.now().strftime('%m/%d %H:%M')}")
+    st.sidebar.caption(f"기준: {now_kst().strftime('%m/%d %H:%M')} (KST)")
     
     url_map = {
         "🇺🇸 S&P 500": "https://finance.naver.com/world/sise.naver?symbol=SPI@SPX",
@@ -620,7 +625,8 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
                 response = get_gemini_response(prompt, gemini_api_key)
                 st.markdown(response)
     else:
-        st.error("API 키가 설정되지 않았습니다.")
+        st.warning("⚠️ Gemini API 키가 설정되지 않았습니다. Streamlit Cloud의 **Secrets** 메뉴에서 아래 형식으로 등록해 주세요:")
+        st.code("[gemini]\napi_key = \"YOUR_GEMINI_API_KEY\"", language="toml")
 
     st.divider()
     st.subheader("📋 수동 종합 분석용 프롬프트 (Backup)")
@@ -635,6 +641,15 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
         st.markdown("### 🔵 Gemini (Google One) 용")
         gem_multi_p = generate_multi_timeframe_gemini_prompt(code, name, market, currency, dfs, news_list=news, holding_status=holding_status, avg_price=avg_price, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
         st.code(gem_multi_p, language=None)
+
+    # ---- Quick-launch link buttons ----
+    st.divider()
+    st.caption("🚀 AI 채팅 서비스 바로 열기 (프롬프트를 복사한 뒤 아래 버튼 클릭)")
+    lb1, lb2, _ = st.columns([1, 1, 3])
+    with lb1:
+        st.link_button("💬 ChatGPT 열기", "https://chatgpt.com/", use_container_width=True)
+    with lb2:
+        st.link_button("🔵 Gemini 열기", "https://gemini.google.com/", use_container_width=True)
 
 @st.fragment
 def render_ai_analysis_content(ticker, name, market, currency, interval_label, display_df, key_suffix):
@@ -830,7 +845,7 @@ with tab_kr:
     st.header("🇰🇷 한국거래소 (KRX)")
 
     # Real-time Ranking (Volume Spikes) using pykrx
-    krx_time_str = st.session_state.get('krx_time', datetime.now().strftime('%m/%d %H:%M'))
+    krx_time_str = st.session_state.get('krx_time', now_kst().strftime('%m/%d %H:%M'))
     st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
 
     # Get today's date in YYYYMMDD string
@@ -1172,7 +1187,7 @@ with tab_kr:
 
                 st.session_state['krx_market_df'] = top_df
                 st.session_state['krx_today_str'] = today_str
-                st.session_state['krx_time'] = datetime.now().strftime('%m/%d %H:%M')
+                st.session_state['krx_time'] = now_kst().strftime('%m/%d %H:%M')
 
         top_df = st.session_state.get('krx_market_df', pd.DataFrame())
         today_str = st.session_state.get('krx_today_str', today_str)
@@ -1486,7 +1501,7 @@ with tab_us:
     # --- US Ranking (Most Active) ---
     # --- US Ranking (Most Active) ---
     # Manual Refresh Header
-    us_time_str = st.session_state.get('us_time', datetime.now().strftime('%m/%d %H:%M'))
+    us_time_str = st.session_state.get('us_time', now_kst().strftime('%m/%d %H:%M'))
     st.subheader(f"🔥 거래량 상위 Top 10 (Most Active) ({us_time_str})")
 
     @st.cache_data(ttl=60)
@@ -1510,7 +1525,7 @@ with tab_us:
          with st.spinner("미국 Top 10 데이터를 가져오는 중..."):
              us_top = get_us_most_active()
              st.session_state['us_top_df'] = us_top
-             st.session_state['us_time'] = datetime.now().strftime('%m/%d %H:%M')
+             st.session_state['us_time'] = now_kst().strftime('%m/%d %H:%M')
 
     us_top_df = st.session_state.get('us_top_df', pd.DataFrame())
 
