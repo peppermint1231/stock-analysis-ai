@@ -642,14 +642,39 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
         gem_multi_p = generate_multi_timeframe_gemini_prompt(code, name, market, currency, dfs, news_list=news, holding_status=holding_status, avg_price=avg_price, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
         st.code(gem_multi_p, language=None)
 
-    # ---- Quick-launch link buttons ----
+    # ---- Quick-launch buttons: Copy prompt + Open link ----
+    import json as _json
+    def _copy_and_open_btn(label, text, url, bg_color):
+        t_json = _json.dumps(text)
+        return f"""
+        <button onclick="(function(){{
+            var txt = {t_json};
+            if(navigator.clipboard && window.isSecureContext){{
+                navigator.clipboard.writeText(txt).then(function(){{
+                    window.open('{url}','_blank');
+                }}).catch(function(){{window.open('{url}','_blank');}});
+            }} else {{
+                var ta=document.createElement('textarea');
+                ta.value=txt;
+                ta.style.position='fixed';ta.style.opacity='0';
+                document.body.appendChild(ta);ta.focus();ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                window.open('{url}','_blank');
+            }}
+        }})();" style="background:{bg_color};color:white;border:none;padding:10px 0;
+        width:100%;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;
+        letter-spacing:0.3px;">
+            {label}
+        </button>"""
+
     st.divider()
-    st.caption("🚀 AI 채팅 서비스 바로 열기 (프롬프트를 복사한 뒤 아래 버튼 클릭)")
+    st.caption("🚀 버튼 클릭 한 번으로 프롬프트 복사 + AI 채팅 열기!")
     lb1, lb2, _ = st.columns([1, 1, 3])
     with lb1:
-        st.link_button("💬 ChatGPT 열기", "https://chatgpt.com/", use_container_width=True)
+        components.html(_copy_and_open_btn("� 복사 후 ChatGPT 열기", gpt_multi_p, "https://chatgpt.com/", "#10a37f"), height=50)
     with lb2:
-        st.link_button("🔵 Gemini 열기", "https://gemini.google.com/", use_container_width=True)
+        components.html(_copy_and_open_btn("� 복사 후 Gemini 열기", gem_multi_p, "https://gemini.google.com/", "#1a73e8"), height=50)
 
 @st.fragment
 def render_ai_analysis_content(ticker, name, market, currency, interval_label, display_df, key_suffix):
