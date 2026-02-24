@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Streamlit
+.streamlit/secrets.toml
+# allow other streamlit config
+!.streamlit/config.toml
+
+# Virtual Enviroments
+venv/
+env/
+.env
+.venv
+
+# IDEs
+.vscode/
+.idea/
+
+# Custom project ignores
+project_backup.zip
+streamlit.log
