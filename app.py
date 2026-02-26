@@ -38,37 +38,57 @@ except Exception:
 
 from pykrx import stock
 
-# pykrx 내부 OhlcvByTicker.fetch() 패치 — KRX API 컬럼명 변경 대응
-# 영어 컬럼(Open/High/Low/Close...)을 한국어(시가/고가/저가/종가...)로 자동 변환
+# ── pykrx 호환성 패치 ────────────────────────────────────────────────────────
 _EN_KR_COL_MAP = {
     'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
     'Volume': '거래량', 'Value': '거래대금', 'ChangeRate': '등락률',
     'Change': '등락률', 'MarketCap': '시가총액', 'Shares': '상장주식수',
 }
 
-def _try_patch_ohlcv_by_ticker():
-    import importlib as _importlib
-    candidate_modules = [
-        'pykrx.stock.market.ticker',
-        'pykrx.stock.market.core',
-        'pykrx.stock.market',
-    ]
-    for mod_name in candidate_modules:
+def _patch_pykrx_ohlcv():
+    import pkgutil, importlib, pykrx as _pykrx, pandas as _pd
+    import pykrx.stock.stock_api as _sa
+
+    # pykrx 전체에서 OhlcvByTicker 탐색
+    _FetcherCls = None
+    for pkg in pkgutil.walk_packages(_pykrx.__path__, _pykrx.__name__ + '.'):
         try:
-            mod = _importlib.import_module(mod_name)
-            cls = getattr(mod, 'OhlcvByTicker', None)
-            if cls is not None:
-                _orig = cls.fetch
-                def _fixed_fetch(self, *args, **kwargs):
-                    df = _orig(self, *args, **kwargs)
-                    return df.rename(columns=_EN_KR_COL_MAP)
-                cls.fetch = _fixed_fetch
-                return True
+            mod = importlib.import_module(pkg.name)
         except Exception:
             continue
-    return False
+        cls = getattr(mod, 'OhlcvByTicker', None)
+        if cls is not None and hasattr(cls, 'fetch'):
+            _FetcherCls = cls
+            break
 
-_try_patch_ohlcv_by_ticker()
+    if _FetcherCls is None:
+        return
+
+    def _safe_ohlcv_by_ticker(date, market="KOSPI", prev_close=False):
+        try:
+            df = _FetcherCls(date, market).fetch()
+        except Exception:
+            return _pd.DataFrame()
+        if df is None or df.empty:
+            return _pd.DataFrame()
+        df = df.rename(columns=_EN_KR_COL_MAP)
+        kr_ohlc = ['시가', '고가', '저가', '종가']
+        if all(c in df.columns for c in kr_ohlc):
+            try:
+                if (df[kr_ohlc] == 0).all(axis=None):
+                    return _pd.DataFrame()
+            except Exception:
+                pass
+        return df
+
+    _sa.get_market_ohlcv_by_ticker = _safe_ohlcv_by_ticker
+    try:
+        stock.get_market_ohlcv_by_ticker = _safe_ohlcv_by_ticker
+    except Exception:
+        pass
+
+_patch_pykrx_ohlcv()
+# ─────────────────────────────────────────────────────────────────────────────
 
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
