@@ -37,6 +37,39 @@ except Exception:
     sys.modules["pkg_resources"] = _pkg
 
 from pykrx import stock
+
+# pykrx 내부 OhlcvByTicker.fetch() 패치 — KRX API 컬럼명 변경 대응
+# 영어 컬럼(Open/High/Low/Close...)을 한국어(시가/고가/저가/종가...)로 자동 변환
+_EN_KR_COL_MAP = {
+    'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
+    'Volume': '거래량', 'Value': '거래대금', 'ChangeRate': '등락률',
+    'Change': '등락률', 'MarketCap': '시가총액', 'Shares': '상장주식수',
+}
+
+def _try_patch_ohlcv_by_ticker():
+    import importlib as _importlib
+    candidate_modules = [
+        'pykrx.stock.market.ticker',
+        'pykrx.stock.market.core',
+        'pykrx.stock.market',
+    ]
+    for mod_name in candidate_modules:
+        try:
+            mod = _importlib.import_module(mod_name)
+            cls = getattr(mod, 'OhlcvByTicker', None)
+            if cls is not None:
+                _orig = cls.fetch
+                def _fixed_fetch(self, *args, **kwargs):
+                    df = _orig(self, *args, **kwargs)
+                    return df.rename(columns=_EN_KR_COL_MAP)
+                cls.fetch = _fixed_fetch
+                return True
+        except Exception:
+            continue
+    return False
+
+_try_patch_ohlcv_by_ticker()
+
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
 
