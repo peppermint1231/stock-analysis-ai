@@ -536,7 +536,7 @@ if data:
         
         url = url_map.get(name, "#")
         st.sidebar.markdown(f"**[{name}]({url})**")
-        st.sidebar.metric("", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
+        st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
         
     st.sidebar.markdown("---")
     st.sidebar.subheader("💎 원자재 & 코인")
@@ -551,7 +551,7 @@ if data:
         st.sidebar.markdown(f"**[{label}]({url})**")
         
         # Metric with $ prefix
-        st.sidebar.metric("", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
+        st.sidebar.metric(" ", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
         
         # Subtext for KRW with larger font
         st.sidebar.markdown(f"<div style='color:gray; font-size:1.1em; margin-top:-10px; margin-bottom:10px;'>약 {krw:,.0f} 원</div>", unsafe_allow_html=True)
