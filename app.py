@@ -536,7 +536,7 @@ if data:
         
         url = url_map.get(name, "#")
         st.sidebar.markdown(f"**[{name}]({url})**")
-        st.sidebar.metric("", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
+        st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
         
     st.sidebar.markdown("---")
     st.sidebar.subheader("💎 원자재 & 코인")
@@ -551,7 +551,7 @@ if data:
         st.sidebar.markdown(f"**[{label}]({url})**")
         
         # Metric with $ prefix
-        st.sidebar.metric("", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
+        st.sidebar.metric(" ", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
         
         # Subtext for KRW with larger font
         st.sidebar.markdown(f"<div style='color:gray; font-size:1.1em; margin-top:-10px; margin-bottom:10px;'>약 {krw:,.0f} 원</div>", unsafe_allow_html=True)
@@ -1025,6 +1025,7 @@ with tab_kr:
 
             for _ in range(5):
                 d_str = check_date.strftime("%Y%m%d")
+                # KOSPI + KOSDAQ + KONEX
                 tickers = stock.get_market_ticker_list(d_str, market="ALL")
                 if tickers:
                     break
@@ -1034,6 +1035,9 @@ with tab_kr:
                 return {}
 
             ticker_to_name = {}
+            # Fetch bulk OHLCV to get names (much faster than individual API calls)
+            # Pykrx doesn't reliably offer a single 'get all names' function that is fast.
+            # However, iter over tickers takes about 2-3 seconds usually.
             for ticker in tickers:
                 name = stock.get_market_ticker_name(ticker)
                 ticker_to_name[ticker] = name
@@ -1041,6 +1045,7 @@ with tab_kr:
             return ticker_to_name
 
         except Exception as e:
+            # Print the error out so I can see what is happening.
             st.error(f"종목 목록을 가져오는데 실패했습니다: {e}")
             return {}
 
