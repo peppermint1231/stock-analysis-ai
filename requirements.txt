@@ -12,3 +12,4 @@ openpyxl
 beautifulsoup4
 streamlit-autorefresh
 streamlit-local-storage
+finance-datareader

@@ -1018,26 +1018,16 @@ with tab_kr:
 
     @st.cache_data(show_spinner="전체 종목 리스트를 불러오는 중입니다... (최초 1회 소요)")
     def get_krx_mapping():
-        """Fetches all KRX tickers and names efficiently."""
+        """Fetches all KRX tickers and names efficiently using FinanceDataReader."""
         try:
-            check_date = datetime.today()
-            tickers = []
-
-            for _ in range(5):
-                d_str = check_date.strftime("%Y%m%d")
-                tickers = stock.get_market_ticker_list(d_str, market="ALL")
-                if tickers:
-                    break
-                check_date -= timedelta(days=1)
-
-            if not tickers:
+            import FinanceDataReader as fdr
+            df = fdr.StockListing('KRX')
+            
+            if df.empty:
                 return {}
-
-            ticker_to_name = {}
-            for ticker in tickers:
-                name = stock.get_market_ticker_name(ticker)
-                ticker_to_name[ticker] = name
-
+            
+            # Create a dictionary from 'Code' to 'Name'
+            ticker_to_name = dict(zip(df['Code'], df['Name']))
             return ticker_to_name
 
         except Exception as e:
