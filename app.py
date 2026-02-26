@@ -6,7 +6,7 @@ import yfinance as yf
 try:
     import pkg_resources  # noqa: F401
 except ImportError:
-    import sys, types, importlib.metadata as _meta
+    import sys, types, os as _os, importlib.util as _util, importlib.metadata as _meta
     _pkg = types.ModuleType("pkg_resources")
     def _get_dist(name):
         try:
@@ -14,7 +14,16 @@ except ImportError:
         except Exception:
             v = "0.0.0"
         return type("Dist", (), {"version": v, "PKG-INFO": ""})()
+    def _resource_filename(package_or_req, resource_name):
+        try:
+            spec = _util.find_spec(package_or_req)
+            if spec and spec.origin:
+                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
+        except Exception:
+            pass
+        return resource_name
     _pkg.get_distribution = _get_dist
+    _pkg.resource_filename = _resource_filename
     _pkg.DistributionNotFound = Exception
     _pkg.VersionConflict = Exception
     sys.modules["pkg_resources"] = _pkg
