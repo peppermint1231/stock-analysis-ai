@@ -1,6 +1,6 @@
 streamlit>=1.37.0
 yfinance
-pandas
+pandas==2.2.3
 numpy
 plotly
 requests
