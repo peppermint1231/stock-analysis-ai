@@ -1264,9 +1264,29 @@ with tab_kr:
 
     @st.cache_data(ttl=60)
     def get_krx_data_cached(d_str):
-        df = stock.get_market_ohlcv(d_str, market="ALL")
-        if not df.empty:
-            # pykrx 버전에 따라 영어 또는 한국어 컬럼명이 반환될 수 있음
+        # pykrx의 내부 API를 직접 호출하여 내부 휴장일 체크(KeyError) 버그를 완벽히 우회
+        df = None
+        try:
+            import pkgutil, importlib, pykrx as _pykrx
+            _Fetcher = None
+            for pkg in pkgutil.walk_packages(_pykrx.__path__, _pykrx.__name__ + '.'):
+                try:
+                    mod = importlib.import_module(pkg.name)
+                    cls = getattr(mod, 'OhlcvByTicker', None)
+                    if cls is not None and hasattr(cls, 'fetch'):
+                        _Fetcher = cls
+                        break
+                except Exception:
+                    continue
+            
+            if _Fetcher:
+                df = _Fetcher(d_str, "ALL").fetch()
+            else:
+                df = stock.get_market_ohlcv(d_str, market="ALL")
+        except Exception:
+            df = pd.DataFrame()
+            
+        if df is not None and not df.empty:
             # 영어 컬럼 → 한국어로 변환 (이미 한국어인 경우 무시됨)
             rename_dict = {
                 'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
@@ -1275,6 +1295,18 @@ with tab_kr:
                 'Market Cap': '시가총액', 'MarketCap': '시가총액'
             }
             df = df.rename(columns=rename_dict)
+            
+            # 자체 휴장일 체크 (안전하게 수행)
+            req_cols = ['시가', '고가', '저가', '종가']
+            if all(c in df.columns for c in req_cols):
+                try:
+                    if (df[req_cols] == 0).all(axis=None):
+                        return pd.DataFrame()
+                except Exception:
+                    pass
+        else:
+            df = pd.DataFrame()
+            
         return df
 
     try:
