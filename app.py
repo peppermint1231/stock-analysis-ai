@@ -3,14 +3,22 @@ import yfinance as yf
 
 # pkg_resources compatibility shim for Python 3.12+ / Streamlit Cloud
 # pykrx의 __init__.py가 pkg_resources를 사용하므로 없는 경우 대체 모듈 주입
+import sys, types, os as _os, importlib.util as _util
+try:
+    import importlib.metadata as _meta
+except ImportError:
+    _meta = None
+
 try:
     import pkg_resources  # noqa: F401
-except ImportError:
-    import sys, types, os as _os, importlib.util as _util, importlib.metadata as _meta
+    # setuptools는 있으나 resource_filename이 없는 경우 보완
+    if not hasattr(pkg_resources, 'resource_filename'):
+        raise AttributeError
+except Exception:
     _pkg = types.ModuleType("pkg_resources")
     def _get_dist(name):
         try:
-            v = _meta.version(name)
+            v = _meta.version(name) if _meta else "0.0.0"
         except Exception:
             v = "0.0.0"
         return type("Dist", (), {"version": v, "PKG-INFO": ""})()
