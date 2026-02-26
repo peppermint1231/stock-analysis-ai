@@ -1,5 +1,24 @@
 import streamlit as st
 import yfinance as yf
+
+# pkg_resources compatibility shim for Python 3.12+ / Streamlit Cloud
+# pykrx의 __init__.py가 pkg_resources를 사용하므로 없는 경우 대체 모듈 주입
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    import sys, types, importlib.metadata as _meta
+    _pkg = types.ModuleType("pkg_resources")
+    def _get_dist(name):
+        try:
+            v = _meta.version(name)
+        except Exception:
+            v = "0.0.0"
+        return type("Dist", (), {"version": v, "PKG-INFO": ""})()
+    _pkg.get_distribution = _get_dist
+    _pkg.DistributionNotFound = Exception
+    _pkg.VersionConflict = Exception
+    sys.modules["pkg_resources"] = _pkg
+
 from pykrx import stock
 import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
