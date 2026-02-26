@@ -106,8 +106,53 @@ import streamlit.components.v1 as components
 from streamlit_autorefresh import st_autorefresh
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx
+from streamlit_local_storage import LocalStorage
+
 # Page Configuration
 st.set_page_config(layout="wide", page_title="Stock Technical Analysis")
+
+# Initialize LocalStorage
+localS = LocalStorage()
+
+# Mobile Optimization & Custom CSS
+st.markdown(
+    """
+    <style>
+    /* Mobile Optimization */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 2rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        h1 { font-size: 1.8rem !important; }
+        h2 { font-size: 1.5rem !important; }
+        h3 { font-size: 1.2rem !important; }
+        div[data-testid="stMetricValue"] { font-size: 1.4rem !important; }
+        /* Make dataframes scrollable horizontally */
+        div[data-testid="stDataFrame"] {
+            overflow-x: auto;
+        }
+        /* Buttons span full width */
+        .stButton>button {
+            width: 100%;
+        }
+        /* Inputs span full width */
+        .stSelectbox>div[data-baseweb="select"] {
+            width: 100%;
+        }
+        .stTextInput>div[data-baseweb="input"] {
+            width: 100%;
+        }
+        /* Hide plotly toolbars on mobile */
+        .modebar-container {
+            display: none !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 def append_live_minute_data(df, ticker, m_name=None):
     """Fetches real-time 1m data using yfinance and appends/updates the last Daily row."""
@@ -538,11 +583,16 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
             kr_code_input = st.session_state.get("kr_code_input")
         
         # --- Recent Searches (KRX) ---
-        if 'recent_kr' not in st.session_state:
+        # Initialize from LocalStorage if not in session state
+        ls_recent_kr = localS.getItem("recent_kr")
+        if ls_recent_kr is not None and isinstance(ls_recent_kr, list):
+            st.session_state['recent_kr'] = ls_recent_kr
+        elif 'recent_kr' not in st.session_state:
             st.session_state['recent_kr'] = []
             
         def clear_kr_recent():
             st.session_state['recent_kr'] = []
+            localS.setItem("recent_kr", [])
             
         if st.session_state['recent_kr']:
             st.write("최근 검색 (Recent):")
@@ -591,11 +641,15 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
             st.text_input("티커 입력 (예: AAPL, TSLA)", value="AAPL", key="us_ticker_input")
 
         # --- Recent Searches (US) ---
-        if 'recent_us' not in st.session_state:
+        ls_recent_us = localS.getItem("recent_us")
+        if ls_recent_us is not None and isinstance(ls_recent_us, list):
+            st.session_state['recent_us'] = ls_recent_us
+        elif 'recent_us' not in st.session_state:
             st.session_state['recent_us'] = []
 
         def clear_us_recent():
             st.session_state['recent_us'] = []
+            localS.setItem("recent_us", [])
 
         if st.session_state['recent_us']:
             st.write("최근 검색 (Recent):")
@@ -630,27 +684,24 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
 
 
 
-def render_tradingview_widget(symbol):
+def render_tradingview_widget(symbol, interval="D"):
     """Renders TradingView Widget"""
     components.html(
         f"""
-        <div class="tradingview-widget-container">
-          <div id="tradingview_widget"></div>
+        <div class="tradingview-widget-container" style="height:100%;width:100%">
+          <div id="tradingview_{symbol.replace(':', '_')}" style="height:calc(100% - 32px);width:100%"></div>
           <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
           <script type="text/javascript">
           new TradingView.widget(
           {{
-            "width": "100%",
-            "height": 600,
+            "autosize": true,
             "symbol": "{symbol}",
-            "interval": "D",
+            "interval": "{interval}",
             "timezone": "Asia/Seoul",
             "theme": "dark",
             "style": "1",
             "locale": "kr",
-            "toolbar_bg": "#f1f3f6",
             "enable_publishing": false,
-            "hide_side_toolbar": false,
             "allow_symbol_change": true,
             "container_id": "tradingview_widget"
           }}
@@ -658,7 +709,7 @@ def render_tradingview_widget(symbol):
           </script>
         </div>
         """,
-        height=600,
+        height=500,
     )
 
 @st.fragment
@@ -1303,10 +1354,13 @@ with tab_kr:
         if 'krx_market_df' not in st.session_state:
             with st.spinner("KRX 전체 시세 데이터 로딩 중..."):
                 top_df = pd.DataFrame()
-                check_date = datetime.today()
+                
+                # datetime.today() 대신 KST 기준 함수 사용
+                check_date = today_kst()
+                recent_valid_d_str = check_date.strftime("%Y%m%d")
 
-                # 최대 10일 전까지 거슬러 올라가며 최근 거래일 탐색 (긴 연휴 대응)
-                for _ in range(10):
+                # 최대 14일 전까지 거슬러 올라가며 최근 거래일 탐색 (긴 연휴/주말 연속 대응)
+                for _ in range(14):
                     d_str = check_date.strftime("%Y%m%d")
                     temp_df = get_krx_data_cached(d_str)
 
@@ -1315,14 +1369,14 @@ with tab_kr:
                         required_cols = ['시가', '고가', '저가', '종가', '거래량']
                         if all(c in temp_df.columns for c in required_cols):
                             if temp_df['거래량'].sum() > 0:
-                                today_str = d_str
+                                recent_valid_d_str = d_str
                                 top_df = temp_df
                                 break
 
                     check_date -= timedelta(days=1)
 
                 st.session_state['krx_market_df'] = top_df
-                st.session_state['krx_today_str'] = today_str
+                st.session_state['krx_today_str'] = recent_valid_d_str
                 st.session_state['krx_time'] = now_kst().strftime('%m/%d %H:%M')
 
         top_df = st.session_state.get('krx_market_df', pd.DataFrame())
@@ -1481,6 +1535,9 @@ with tab_kr:
         # Keep max 10
         if len(st.session_state['recent_kr']) > 10:
             st.session_state['recent_kr'] = st.session_state['recent_kr'][:10]
+            
+        # Save to LocalStorage
+        localS.setItem('recent_kr', st.session_state['recent_kr'])
 
     if st.session_state.get('run_krx'):
         if name_to_ticker:
@@ -1492,9 +1549,8 @@ with tab_kr:
             kr_code = st.session_state.get("kr_code_input", "005930")
             selected_name = kr_code
 
-        # Render Daum Finance Chart immediately before fetching data
-        daum_chart_url = f"https://finance.daum.net/chart/A{kr_code}"
-        st.components.v1.iframe(daum_chart_url, height=1200, scrolling=False)
+        # Render TradingView Chart immediately before fetching data
+        render_tradingview_widget(f"KRX:{kr_code}")
 
         with st.spinner('KRX 데이터 가져오는 중...'):
             start_load_time = time.time()
@@ -1615,6 +1671,9 @@ with tab_kr:
                                 df_final = df_kr.sort_index()
                             else:
                                 df_final = resample_ohlcv(df_kr, period_code)
+                                
+                        # Apply indicators for single timeframes
+                        df_final = calculate_indicators(df_final)
 
                         elapsed = time.time() - start_load_time
                         st.success(f"'{selected_name}' {interval_kr_sel} 분석 (⏱️ 소요 시간: {elapsed:.2f}초)")
@@ -1944,6 +2003,8 @@ with tab_us:
 
         if len(st.session_state['recent_us']) > 10:
             st.session_state['recent_us'] = st.session_state['recent_us'][:10]
+            
+        localS.setItem('recent_us', st.session_state['recent_us'])
 
     if st.session_state.get('run_us'):
         if us_name_to_ticker:
@@ -1957,32 +2018,7 @@ with tab_us:
         period_code_us = int_map.get(interval_us_sel, "D")
         
         # Render TradingView Chart immediately before fetching data
-        st.components.v1.html(
-            f"""
-            <div class="tradingview-widget-container" style="margin-bottom: 20px;">
-              <div id="tradingview_{us_ticker}"></div>
-              <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-              <script type="text/javascript">
-              new TradingView.widget(
-              {{
-                "width": "100%",
-                "height": 1180,
-                "symbol": "{us_ticker}",
-                "interval": "{period_code_us}",
-                "timezone": "Asia/Seoul",
-                "theme": "light",
-                "style": "1",
-                "locale": "kr",
-                "enable_publishing": false,
-                "allow_symbol_change": true,
-                "container_id": "tradingview_{us_ticker}"
-              }}
-              );
-              </script>
-            </div>
-            """,
-            height=1200,
-        )
+        render_tradingview_widget(us_ticker, period_code_us)
 
         with st.spinner('미국 주식 데이터 가져오는 중...'):
             start_load_time = time.time()
@@ -2086,6 +2122,8 @@ with tab_us:
                             df_final = df_us.sort_index()
                         else:
                             df_final = resample_ohlcv(df_us, period_code)
+                            
+                    df_final = calculate_indicators(df_final)
                         
                     elapsed = time.time() - start_load_time
                     st.success(f"'{selected_us_name if us_name_to_ticker else us_ticker}' {interval_us_sel} 분석 (⏱️ 소요 시간: {elapsed:.2f}초)")
