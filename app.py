@@ -1264,30 +1264,16 @@ with tab_kr:
 
     @st.cache_data(ttl=60)
     def get_krx_data_cached(d_str):
-        # pykrx의 내부 API를 직접 호출하여 내부 휴장일 체크(KeyError) 버그를 완벽히 우회
-        df = None
+        # stock.get_market_ohlcv의 휴장일 버그(KeyError)를 피하기 위해 가장 Low-level API 직접 호출
+        df = pd.DataFrame()
         try:
-            import pkgutil, importlib, pykrx as _pykrx
-            _Fetcher = None
-            for pkg in pkgutil.walk_packages(_pykrx.__path__, _pykrx.__name__ + '.'):
-                try:
-                    mod = importlib.import_module(pkg.name)
-                    cls = getattr(mod, 'OhlcvByTicker', None)
-                    if cls is not None and hasattr(cls, 'fetch'):
-                        _Fetcher = cls
-                        break
-                except Exception:
-                    continue
-            
-            if _Fetcher:
-                df = _Fetcher(d_str, "ALL").fetch()
-            else:
-                df = stock.get_market_ohlcv(d_str, market="ALL")
+            from pykrx.website import krx
+            df = krx.get_market_ohlcv_by_ticker(d_str, "ALL")
         except Exception:
-            df = pd.DataFrame()
+            pass
             
-        if df is not None and not df.empty:
-            # 영어 컬럼 → 한국어로 변환 (이미 한국어인 경우 무시됨)
+        if not df.empty:
+            # 영어 컬럼 → 한국어로 변환
             rename_dict = {
                 'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
                 'Volume': '거래량', 'Value': '거래대금',
@@ -1296,7 +1282,7 @@ with tab_kr:
             }
             df = df.rename(columns=rename_dict)
             
-            # 자체 휴장일 체크 (안전하게 수행)
+            # 자체 휴장일 체크
             req_cols = ['시가', '고가', '저가', '종가']
             if all(c in df.columns for c in req_cols):
                 try:
@@ -1304,9 +1290,6 @@ with tab_kr:
                         return pd.DataFrame()
                 except Exception:
                     pass
-        else:
-            df = pd.DataFrame()
-            
         return df
 
     try:
