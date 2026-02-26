@@ -4,7 +4,7 @@ pandas
 numpy
 plotly
 requests
-pykrx>=1.2.0
+pykrx==1.0.47
 google-generativeai
 lxml
 openpyxl

@@ -1177,7 +1177,14 @@ with tab_kr:
     def get_krx_data_cached(d_str):
         df = stock.get_market_ohlcv(d_str, market="ALL")
         if not df.empty:
-            rename_dict = {'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가', 'Volume': '거래량', 'Value': '거래대금', 'Fluctuation': '등락률', 'Market Cap': '시가총액'}
+            # pykrx 버전에 따라 영어 또는 한국어 컬럼명이 반환될 수 있음
+            # 영어 컬럼 → 한국어로 변환 (이미 한국어인 경우 무시됨)
+            rename_dict = {
+                'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
+                'Volume': '거래량', 'Value': '거래대금',
+                'Fluctuation': '등락률', 'ChangeRate': '등락률',
+                'Market Cap': '시가총액', 'MarketCap': '시가총액'
+            }
             df = df.rename(columns=rename_dict)
         return df
 
