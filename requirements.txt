@@ -6,7 +6,7 @@ plotly
 requests
 setuptools
 pykrx==1.0.47
-google-genai
+google-generativeai
 lxml
 openpyxl
 beautifulsoup4
