@@ -1095,53 +1095,40 @@ with tab_kr:
         return df_subset
 
     @st.cache_data(ttl=60)
-    def get_krx_data_cached():
-        # Fetch directly using FinanceDataReader StockListing for current day rankings
-        import FinanceDataReader as fdr
-        df = pd.DataFrame()
+    def get_naver_ranking(type="quant"):
+        # type="quant" (Volume), type="amount" (Value)
+        url = f'https://finance.naver.com/sise/sise_{type}.naver'
+        headers = {'User-Agent': 'Mozilla/5.0'}
         try:
-            df = fdr.StockListing('KRX')
-        except Exception:
-            pass
+            import requests
+            import io
+            r = requests.get(url, headers=headers)
+            dfs = pd.read_html(io.StringIO(r.text), encoding='euc-kr')
+            df = dfs[1].dropna(how='all').head(10)
             
-        if df.empty or 'Code' not in df.columns:
-             # Fallback to KOSPI/KOSDAQ merge if KRX fails
-             try:
-                 df_kospi = fdr.StockListing('KOSPI')
-                 df_kosdaq = fdr.StockListing('KOSDAQ')
-                 frames = []
-                 if not df_kospi.empty: frames.append(df_kospi)
-                 if not df_kosdaq.empty: frames.append(df_kosdaq)
-                 if frames:
-                     df = pd.concat(frames)
-             except Exception:
-                 pass
+            # Map columns cleanly
+            if type == "quant":
+                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+            else:
+                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
             
-        if not df.empty and 'Code' in df.columns:
-            df = df.set_index('Code')
-            rename_dict = {
-                'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
-                'Volume': '거래량', 'Amount': '거래대금',
-                'ChagesRatio': '등락률', 'Marcap': '시가총액'
-            }
-            df = df.rename(columns=rename_dict)
+            # Convert to numeric
+            for col in ['현재가', '거래량', '거래대금']:
+                if col in df.columns:
+                     df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
+            
+            if '등락률' in df.columns:
+                df['등락률'] = pd.to_numeric(df['등락률'].astype(str).str.replace('%', '').str.replace('+', ''), errors='coerce')
+                
             return df
-        return pd.DataFrame()
+        except Exception as e:
+            return pd.DataFrame()
 
     try:
-        if 'krx_market_df' not in st.session_state:
-            with st.spinner("KRX 전체 시세 데이터 로딩 중..."):
-                top_df = get_krx_data_cached()
-                
-                check_date = today_kst()
-                recent_valid_d_str = check_date.strftime("%Y%m%d")
-
-                st.session_state['krx_market_df'] = top_df
-                st.session_state['krx_today_str'] = recent_valid_d_str
-                st.session_state['krx_time'] = now_kst().strftime('%m/%d %H:%M')
-
-        top_df = st.session_state.get('krx_market_df', pd.DataFrame())
-        today_str = st.session_state.get('krx_today_str', today_str)
+        check_date = today_kst()
+        recent_valid_d_str = check_date.strftime("%Y%m%d")
+        today_str = recent_valid_d_str
+        krx_time_str = now_kst().strftime('%m/%d %H:%M')
 
         display_cols = ['종목명', '종가', '시가', '고가', '저가', '52주최고', '등락률', '거래량', '거래대금', 'is_breakout']
         numeric_cols = ['종가', '시가', '고가', '저가', '거래량', '거래대금', '52주최고']
@@ -1153,56 +1140,67 @@ with tab_kr:
         }
 
         @st.fragment
-        def render_krx_ranking(top_df, today_str, krx_time_str, ticker_to_name, numeric_cols, display_cols):
-            # Sort by Volume (거래량) descending
-            if not top_df.empty:
-                vol_col = '거래량'
-                top_10 = top_df.sort_values(by=vol_col, ascending=False).head(10)
-                top_10 = process_top_10(top_10, ticker_to_name, today_str)
+        def render_krx_ranking(today_str, krx_time_str, name_to_ticker_map, numeric_cols, display_cols):
+            with st.spinner("네이버 증권에서 오늘의 실시간 랭킹을 가져오는 중..."):
+                top_10 = get_naver_ranking("quant")
+            
+            if not top_10.empty:
+                # Add Tickers and process 52-week highs
+                top_10['Ticker'] = top_10['종목명'].map(name_to_ticker_map)
+                top_10 = top_10.dropna(subset=['Ticker'])
+                if not top_10.empty:
+                    top_10 = top_10.set_index('Ticker')
+                    top_10 = process_top_10(top_10, ticker_to_name, today_str)
 
-                top_10_disp = top_10.copy()
-                for col in numeric_cols:
-                    if col in top_10_disp.columns:
-                        top_10_disp[col] = top_10_disp[col].apply(lambda x: f'{x:,.0f}')
+                    top_10_disp = top_10.copy()
+                    for col in numeric_cols:
+                        if col in top_10_disp.columns:
+                            top_10_disp[col] = top_10_disp[col].apply(lambda x: f'{x:,.0f}')
 
-                avail_cols = [c for c in display_cols if c in top_10_disp.columns]
-                styler = top_10_disp[avail_cols].style
+                    avail_cols = [c for c in display_cols if c in top_10_disp.columns]
+                    styler = top_10_disp[avail_cols].style
 
-                if '등락률' in avail_cols:
-                     styler = styler.format({'등락률': add_arrow})
-                     styler = styler.map(format_price_change, subset=['등락률'])
+                    if '등락률' in avail_cols:
+                         styler = styler.format({'등락률': add_arrow})
+                         styler = styler.map(format_price_change, subset=['등락률'])
 
-                styler = styler.apply(color_name, axis=1)
-                st.dataframe(styler, column_config=column_config)
+                    styler = styler.apply(color_name, axis=1)
+                    st.dataframe(styler, column_config=column_config)
 
                 # --- Top 10 Trading Value (거래대금) ---
                 st.subheader(f"💰 오늘의 거래대금 TOP 10 ({krx_time_str})")
-                val_col = '거래대금'
+                
+                with st.spinner("네이버 증권에서 오늘의 실시간 랭킹을 가져오는 중..."):
+                    top_10_val = get_naver_ranking("amount")
 
-                if val_col in top_df.columns:
-                    top_10_val = top_df.sort_values(by=val_col, ascending=False).head(10)
-                    top_10_val = process_top_10(top_10_val, ticker_to_name, today_str)
+                if not top_10_val.empty:
+                    top_10_val['Ticker'] = top_10_val['종목명'].map(name_to_ticker_map)
+                    top_10_val = top_10_val.dropna(subset=['Ticker'])
+                    
+                    if not top_10_val.empty:
+                        top_10_val = top_10_val.set_index('Ticker')
+                        top_10_val = process_top_10(top_10_val, ticker_to_name, today_str)
 
-                    top_10_val_disp = top_10_val.copy()
-                    for col in numeric_cols:
-                        if col in top_10_val_disp.columns:
-                            top_10_val_disp[col] = top_10_val_disp[col].apply(lambda x: f'{x:,.0f}')
+                        top_10_val_disp = top_10_val.copy()
+                        for col in numeric_cols:
+                            if col in top_10_val_disp.columns:
+                                top_10_val_disp[col] = top_10_val_disp[col].apply(lambda x: f'{x:,.0f}')
 
-                    avail_cols_val = [c for c in display_cols if c in top_10_val_disp.columns]
-                    styler_val = top_10_val_disp[avail_cols_val].style
+                        avail_cols_val = [c for c in display_cols if c in top_10_val_disp.columns]
+                        styler_val = top_10_val_disp[avail_cols_val].style
 
-                    if '등락률' in avail_cols_val:
-                         styler_val = styler_val.format({'등락률': add_arrow})
-                         styler_val = styler_val.map(format_price_change, subset=['등락률'])
+                        if '등락률' in avail_cols_val:
+                             styler_val = styler_val.format({'등락률': add_arrow})
+                             styler_val = styler_val.map(format_price_change, subset=['등락률'])
 
-                    styler_val = styler_val.apply(color_name, axis=1)
-                    st.dataframe(styler_val, column_config=column_config)
+                        styler_val = styler_val.apply(color_name, axis=1)
+                        st.dataframe(styler_val, column_config=column_config)
                 else:
-                    st.warning("'거래대금' 데이터를 찾을 수 없습니다.")
+                    st.warning("'거래대금' 데이터를 가져올 수 없습니다.")
             else:
                 st.info("장 시작 전이거나 휴장일입니다. (No Data for Ranking)")
 
-        render_krx_ranking(top_df, today_str, krx_time_str, ticker_to_name, numeric_cols, display_cols)
+        render_krx_ranking(today_str, krx_time_str, name_to_ticker, numeric_cols, display_cols)
     except Exception as e:
         import traceback
         st.warning(f"랭킹 데이터를 가져오는데 실패했습니다: {e}\n\n```python\n{traceback.format_exc()}\n```")    # Input (Selectbox)
