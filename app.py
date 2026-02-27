@@ -303,7 +303,10 @@ def fetch_us_data(ticker, s_str, e_str, interval):
     
     if not df.empty:
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.droplevel(0)
+             try:
+                 df = df.xs(ticker, level=1, axis=1)
+             except:
+                 df.columns = df.columns.get_level_values(0)
             
         if df.index.tzinfo is not None:
             df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
@@ -1090,7 +1093,15 @@ with tab_kr:
         df_subset = df_subset.copy()
 
         # Map Ticker to Name with Naver Finance Link
-        df_subset['종목명'] = [f"https://finance.naver.com/item/fchart.naver?code={t}&name={ticker_map.get(t, t)}" for t in df_subset.index]
+        # If the df already has a valid original name (from Naver scraper), use it. Otherwise fallback to ticker_map.
+        names = []
+        for t in df_subset.index:
+            if '종목명' in df_subset.columns and pd.notna(df_subset.loc[t, '종목명']):
+                 names.append(df_subset.loc[t, '종목명'])
+            else:
+                 names.append(ticker_map.get(t, t))
+
+        df_subset['종목명'] = [f"https://finance.naver.com/item/fchart.naver?code={t}&name={n}" for t, n in zip(df_subset.index, names)]
 
         high_prices = []
         breakouts = []
