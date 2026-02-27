@@ -478,12 +478,23 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
         selected_name = None
         kr_code_input = None
         
+        # Check if a pill was clicked and prepare the default values
+        pill_val = st.session_state.get('kr_pill_clicked_val')
+        
         if name_to_ticker:
-            # We use local variable for selectbox, but key 'kr_select_box' stores it in session_state
-            st.selectbox("종목 선택 (이름으로 검색)", sorted_names, index=default_index, key="kr_select_box")
+            # Set default index dynamically based on pill click or initial load
+            curr_idx = default_index
+            if pill_val and pill_val in sorted_names:
+                 curr_idx = sorted_names.index(pill_val)
+                 st.session_state['kr_pill_clicked_val'] = None # Reset
+                 
+            st.selectbox("종목 선택 (이름으로 검색)", sorted_names, index=curr_idx, key="kr_select_box")
             selected_name = st.session_state.get("kr_select_box")
         else:
-            st.text_input("종목 코드 입력 (예: 005930)", value="005930", key="kr_code_input")
+            curr_val = pill_val if pill_val else "005930"
+            if pill_val: st.session_state['kr_pill_clicked_val'] = None # Reset
+            
+            st.text_input("종목 코드 입력 (예: 005930)", value=curr_val, key="kr_code_input")
             kr_code_input = st.session_state.get("kr_code_input")
         
         # --- Recent Searches (KRX) ---
@@ -510,13 +521,13 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
                 if name_to_ticker:
                     current_sel = st.session_state.get("kr_select_box")
                     if selected_pill in sorted_names and selected_pill != current_sel:
-                         st.session_state['kr_select_box'] = selected_pill
+                         st.session_state['kr_pill_clicked_val'] = selected_pill
                          st.session_state['run_krx'] = True
                          st.rerun()
                 else:
                     current_code = st.session_state.get("kr_code_input")
                     if selected_pill != current_code:
-                         st.session_state['kr_code_input'] = selected_pill
+                         st.session_state['kr_pill_clicked_val'] = selected_pill
                          st.rerun()
 
     with col2:
@@ -539,10 +550,22 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
 def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
     col1, col2 = st.columns([2, 1])
     with col1:
+        # Check if a pill was clicked and prepare the default values
+        pill_val = st.session_state.get('us_pill_clicked_val')
+        
         if us_name_to_ticker:
-            st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, index=default_idx, key="us_select_box")
+            # Set default index dynamically based on pill click or initial load
+            curr_idx = default_idx
+            if pill_val and pill_val in us_sorted_names:
+                 curr_idx = us_sorted_names.index(pill_val)
+                 st.session_state['us_pill_clicked_val'] = None # Reset
+                 
+            st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, index=curr_idx, key="us_select_box")
         else:
-            st.text_input("티커 입력 (예: AAPL, TSLA)", value="AAPL", key="us_ticker_input")
+            curr_val = pill_val if pill_val else "AAPL"
+            if pill_val: st.session_state['us_pill_clicked_val'] = None # Reset
+            
+            st.text_input("티커 입력 (예: AAPL, TSLA)", value=curr_val, key="us_ticker_input")
 
         # --- Recent Searches (US) ---
         ls_recent_us = localS.getItem("recent_us")
@@ -568,13 +591,13 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
                  current_sel = st.session_state.get("us_select_box")
                  if us_name_to_ticker:
                      if selected_u_pill in us_sorted_names and selected_u_pill != current_sel:
-                         st.session_state['us_select_box'] = selected_u_pill
+                         st.session_state['us_pill_clicked_val'] = selected_u_pill
                          st.session_state['run_us'] = True
                          st.rerun()
                  else:
                      current_tick = st.session_state.get("us_ticker_input")
                      if selected_u_pill != current_tick:
-                         st.session_state['us_ticker_input'] = selected_u_pill
+                         st.session_state['us_pill_clicked_val'] = selected_u_pill
                          st.rerun()
     
     with col2:
