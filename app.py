@@ -960,19 +960,35 @@ with tab_kr:
 
     @st.cache_data(ttl=86400, show_spinner="KRX 종목 마스터 로딩 중...")
     def get_krx_mapping():
-        """Fetches all KRX tickers and names efficiently using FinanceDataReader with fallbacks."""
+        """Fetches all KRX tickers and names efficiently using FinanceDataReader with fallbacks and local cache."""
         import FinanceDataReader as fdr
+        import json
+        import os
+        
+        cache_file = "krx_mapping_cache.json"
+        
+        def save_cache(mapping):
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(mapping, f, ensure_ascii=False)
+            except Exception:
+                pass
+
         try:
             df = fdr.StockListing('KRX')
             if not df.empty and 'Code' in df.columns and 'Name' in df.columns:
-                return dict(zip(df['Code'], df['Name']))
+                mapping = dict(zip(df['Code'], df['Name']))
+                save_cache(mapping)
+                return mapping
         except Exception:
             pass
             
         try:
             df = fdr.StockListing('KRX-DESC')
             if not df.empty and 'Code' in df.columns and 'Name' in df.columns:
-                return dict(zip(df['Code'], df['Name']))
+                mapping = dict(zip(df['Code'], df['Name']))
+                save_cache(mapping)
+                return mapping
         except Exception:
             pass
 
@@ -988,7 +1004,19 @@ with tab_kr:
                  combined.update(dict(zip(df_kosdaq['Code'], df_kosdaq['Name'])))
                  
             if combined:
+                 save_cache(combined)
                  return combined
+        except Exception:
+            pass
+            
+        # Ultimate Fallback: Load from local JSON cache if KRX API is totally down
+        try:
+            if os.path.exists(cache_file):
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    mapping = json.load(f)
+                if mapping:
+                    st.warning("KRX 접속 장애로 인해 로컬에 저장된 이전 종목 마스터를 사용합니다.")
+                    return mapping
         except Exception:
             pass
         
@@ -1245,6 +1273,9 @@ with tab_kr:
     def get_naver_ranking(type="quant"):
         # type="quant" (Volume), type="amount" (Value)
         url = f'https://finance.naver.com/sise/sise_{type}.naver'
+        if type == "amount":
+            url = 'https://finance.naver.com/sise/sise_quant_high.naver'
+            
         headers = {'User-Agent': 'Mozilla/5.0'}
         try:
             import requests
@@ -1263,7 +1294,11 @@ with tab_kr:
             if type == "quant":
                  df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
             else:
-                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+                 # In sise_quant_high, headers might slightly differ. To be safe, try to extract specific indexes or known names.
+                 # The euc-kr names are: N, 종목명, 현재가, 전일비, 등락률, 거래량, 매수호가, 매도호가, 거래대금, 누적거래대금, PER
+                 cols_to_keep = ['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']
+                 valid_cols = [c for c in cols_to_keep if c in df.columns]
+                 df = df[valid_cols]
             
             df['Ticker'] = df['종목명'].map(ticker_map)
             
