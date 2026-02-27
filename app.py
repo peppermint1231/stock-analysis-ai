@@ -920,7 +920,7 @@ with tab_kr:
     # Get today's date in YYYYMMDD string
     today_str = datetime.today().strftime("%Y%m%d")
 
-    @st.cache_data(show_spinner="전체 종목 리스트를 불러오는 중입니다... (최초 1회 소요)")
+    @st.cache_data(ttl=86400, show_spinner="KRX 종목 마스터 로딩 중...")
     def get_krx_mapping():
         """Fetches all KRX tickers and names efficiently using FinanceDataReader with fallbacks."""
         import FinanceDataReader as fdr
@@ -937,8 +937,24 @@ with tab_kr:
                 return dict(zip(df['Code'], df['Name']))
         except Exception:
             pass
+
+        # Fallback to KOSPI & KOSDAQ directly if KRX is blocked
+        try:
+            df_kospi = fdr.StockListing('KOSPI')
+            df_kosdaq = fdr.StockListing('KOSDAQ')
+            
+            combined = {}
+            if not df_kospi.empty and 'Code' in df_kospi.columns:
+                 combined.update(dict(zip(df_kospi['Code'], df_kospi['Name'])))
+            if not df_kosdaq.empty and 'Code' in df_kosdaq.columns:
+                 combined.update(dict(zip(df_kosdaq['Code'], df_kosdaq['Name'])))
+                 
+            if combined:
+                 return combined
+        except Exception:
+            pass
         
-        st.error("종목 목록을 가져오는데 실패했습니다 (KRX, KRX-DESC 모두 실패). 일시적인 접속장애일 수 있습니다.")
+        st.error("종목 목록을 가져오는데 실패했습니다 (KRX, KRX-DESC 수배 오류). 일시적인 접속장애일 수 있습니다.")
         return {}
 
     # Get Ticker Mapping
@@ -1088,6 +1104,19 @@ with tab_kr:
         except Exception:
             pass
             
+        if df.empty or 'Code' not in df.columns:
+             # Fallback to KOSPI/KOSDAQ merge if KRX fails
+             try:
+                 df_kospi = fdr.StockListing('KOSPI')
+                 df_kosdaq = fdr.StockListing('KOSDAQ')
+                 frames = []
+                 if not df_kospi.empty: frames.append(df_kospi)
+                 if not df_kosdaq.empty: frames.append(df_kosdaq)
+                 if frames:
+                     df = pd.concat(frames)
+             except Exception:
+                 pass
+            
         if not df.empty and 'Code' in df.columns:
             df = df.set_index('Code')
             rename_dict = {
@@ -1113,6 +1142,15 @@ with tab_kr:
 
         top_df = st.session_state.get('krx_market_df', pd.DataFrame())
         today_str = st.session_state.get('krx_today_str', today_str)
+
+        display_cols = ['종목명', '종가', '시가', '고가', '저가', '52주최고', '등락률', '거래량', '거래대금', 'is_breakout']
+        numeric_cols = ['종가', '시가', '고가', '저가', '거래량', '거래대금', '52주최고']
+
+        column_config = {
+            "종목명": st.column_config.LinkColumn("종목명", display_text=r"name=([^&]+)", help="클릭 시 네이버페이 증권 차트로 이동합니다. 배경색 있는 종목은 52주 신고가(Highlighted: 52-Week High)", max_chars=100),
+            "등락률": st.column_config.TextColumn("등락률"),
+            "is_breakout": st.column_config.CheckboxColumn("전고점 돌파", default=False)
+        }
 
         @st.fragment
         def render_krx_ranking(top_df, today_str, krx_time_str, ticker_to_name, numeric_cols, display_cols):
