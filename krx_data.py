@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import io
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -60,7 +62,9 @@ def get_krx_mapping() -> dict[str, str]:
             pass
 
     def _try_fdr(market: str) -> dict[str, str]:
-        df = fdr.StockListing(market)
+        # FDR이 KRX 서버 장애 시 HTML 에러 페이지를 stdout으로 출력하므로 억제합니다.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            df = fdr.StockListing(market)
         if not df.empty and "Code" in df.columns and "Name" in df.columns:
             return dict(zip(df["Code"], df["Name"]))
         return {}
@@ -96,8 +100,12 @@ def get_krx_mapping() -> dict[str, str]:
     except Exception:
         pass
 
-    st.error("종목 목록을 가져오는데 실패했습니다 (KRX, KRX-DESC 수배 오류). 일시적인 접속장애일 수 있습니다.")
-    get_krx_mapping.clear()
+    # 로컬 캐시도 없을 때: 경고만 표시하고 빈 dict 반환 (text_input 폴백 사용)
+    # NOTE: get_krx_mapping.clear()를 호출하면 캐시가 지워져 매 리런마다 재시도됩니다 — 절대 하지 않습니다.
+    st.warning(
+        "⚠️ KRX 종목 목록을 가져오는데 실패했습니다. (KRX 서버 일시 장애)\n"
+        "아래 **종목 코드 직접 입력** 으로 개별 종목 분석은 계속 사용하실 수 있습니다."
+    )
     return {}
 
 
