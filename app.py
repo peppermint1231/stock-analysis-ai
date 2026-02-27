@@ -933,7 +933,7 @@ def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label,
     # Sort descending by date for view (latest first)
     display_df_view = display_df.sort_index(ascending=False)
 
-    st.dataframe(display_df_view.style.format("{:,.2f}"), height=300, use_container_width=True)
+    st.dataframe(display_df_view.style.format("{:,.2f}"), height=300, width="stretch")
 
     render_ai_analysis_content(ticker, name, market, currency, interval_label, display_df, key_suffix)
 
@@ -1436,36 +1436,39 @@ with tab_kr:
     interval_kr_sel = st.session_state.get("kr_int", "일/주/월/연봉 종합분석")
     default_opts = ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"]
     extra_data_sel = st.session_state.get("kr_data_sel", default_opts)
-
-    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", use_container_width=True):
-        st.session_state['run_krx'] = True
-
+    # UI Setup
+    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", width="stretch"):
         # Retrieve inputs for Recent Logic
         if name_to_ticker:
-            selected_name_val = st.session_state.get("kr_select_box", sorted_names[default_index] if sorted_names else None)
+            symbol_to_search = st.session_state.get("kr_select_box", sorted_names[default_index] if sorted_names else None)
         else:
-            kr_code_input_val = st.session_state.get("kr_code_input", "005930")
+            symbol_to_search = st.session_state.get("kr_code_input", "005930")
 
-        # Add to Recent
-        if name_to_ticker and selected_name_val:
-             if selected_name_val not in st.session_state['recent_kr']:
-                 st.session_state['recent_kr'].insert(0, selected_name_val)
-             else:
-                 st.session_state['recent_kr'].remove(selected_name_val)
-                 st.session_state['recent_kr'].insert(0, selected_name_val)
-        elif not name_to_ticker:
-             if kr_code_input_val not in st.session_state['recent_kr']:
-                 st.session_state['recent_kr'].insert(0, kr_code_input_val)
-             else:
-                 st.session_state['recent_kr'].remove(kr_code_input_val)
-                 st.session_state['recent_kr'].insert(0, kr_code_input_val)
+        if not symbol_to_search:
+            st.warning("종목 또는 코드를 입력/선택해주세요.")
+        else:
+            st.session_state['run_krx'] = True
 
-        # Keep max 10
-        if len(st.session_state['recent_kr']) > 10:
-            st.session_state['recent_kr'] = st.session_state['recent_kr'][:10]
-            
-        # Save to LocalStorage
-        localS.setItem('recent_kr', st.session_state['recent_kr'])
+            # Add to Recent
+            if name_to_ticker and symbol_to_search:
+                 if symbol_to_search not in st.session_state['recent_kr']:
+                     st.session_state['recent_kr'].insert(0, symbol_to_search)
+                 else:
+                     st.session_state['recent_kr'].remove(symbol_to_search)
+                     st.session_state['recent_kr'].insert(0, symbol_to_search)
+            elif not name_to_ticker:
+                 if symbol_to_search not in st.session_state['recent_kr']:
+                     st.session_state['recent_kr'].insert(0, symbol_to_search)
+                 else:
+                     st.session_state['recent_kr'].remove(symbol_to_search)
+                     st.session_state['recent_kr'].insert(0, symbol_to_search)
+
+            # Keep max 10
+            if len(st.session_state['recent_kr']) > 10:
+                st.session_state['recent_kr'] = st.session_state['recent_kr'][:10]
+                
+            # Save to LocalStorage
+            localS.setItem('recent_kr', st.session_state['recent_kr'])
 
     if st.session_state.get('run_krx'):
         if name_to_ticker:
@@ -1906,33 +1909,36 @@ with tab_us:
     start_date_us = st.session_state.get("us_start", datetime.today() - timedelta(days=365))
     end_date_us = st.session_state.get("us_end", datetime.today())
     interval_us_sel = st.session_state.get("us_int", "전체 (All)")
-    if st.button("🚀 분석 실행 (US Analysis)", type="primary", use_container_width=True):
-        st.session_state['run_us'] = True
-
+    if st.button("🚀 분석 실행 (US Analysis)", type="primary", width="stretch"):
         # Retrieve inputs for Recent Logic
         if us_name_to_ticker:
-            selected_us_name_val = st.session_state.get("us_select_box", us_sorted_names[default_idx] if us_sorted_names else None)
+            symbol_to_search = st.session_state.get("us_select_box", us_sorted_names[default_idx] if us_sorted_names else None)
         else:
-            us_ticker_input_val = st.session_state.get("us_ticker_input", "AAPL")
+            symbol_to_search = st.session_state.get("us_ticker_input", "AAPL")
 
-        # Add to Recent
-        if us_name_to_ticker and selected_us_name_val:
-             if selected_us_name_val not in st.session_state['recent_us']:
-                 st.session_state['recent_us'].insert(0, selected_us_name_val)
-             else:
-                 st.session_state['recent_us'].remove(selected_us_name_val)
-                 st.session_state['recent_us'].insert(0, selected_us_name_val)
-        elif not us_name_to_ticker:
-             if us_ticker_input_val not in st.session_state['recent_us']:
-                 st.session_state['recent_us'].insert(0, us_ticker_input_val)
-             else:
-                 st.session_state['recent_us'].remove(us_ticker_input_val)
-                 st.session_state['recent_us'].insert(0, us_ticker_input_val)
+        if not symbol_to_search:
+            st.warning("종목코드(티커)를 입력/선택해주세요.")
+        else:
+            st.session_state['run_us'] = True
 
-        if len(st.session_state['recent_us']) > 10:
-            st.session_state['recent_us'] = st.session_state['recent_us'][:10]
-            
-        localS.setItem('recent_us', st.session_state['recent_us'])
+            # Add to Recent
+            if us_name_to_ticker and symbol_to_search:
+                 if symbol_to_search not in st.session_state['recent_us']:
+                     st.session_state['recent_us'].insert(0, symbol_to_search)
+                 else:
+                     st.session_state['recent_us'].remove(symbol_to_search)
+                     st.session_state['recent_us'].insert(0, symbol_to_search)
+            elif not us_name_to_ticker:
+                 if symbol_to_search not in st.session_state['recent_us']:
+                     st.session_state['recent_us'].insert(0, symbol_to_search)
+                 else:
+                     st.session_state['recent_us'].remove(symbol_to_search)
+                     st.session_state['recent_us'].insert(0, symbol_to_search)
+
+            if len(st.session_state['recent_us']) > 10:
+                st.session_state['recent_us'] = st.session_state['recent_us'][:10]
+                
+            localS.setItem('recent_us', st.session_state['recent_us'])
 
     if st.session_state.get('run_us'):
         if us_name_to_ticker:
