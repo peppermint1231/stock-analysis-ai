@@ -92,10 +92,7 @@ def append_live_minute_data(df, ticker, m_name=None):
         live_df = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
         if not live_df.empty:
             if isinstance(live_df.columns, pd.MultiIndex):
-                 if 'Close' in live_df.columns.get_level_values(0):
-                      live_df.columns = live_df.columns.get_level_values(0)
-                 elif 'Close' in live_df.columns.get_level_values(1):
-                      live_df.columns = live_df.columns.get_level_values(1)
+                live_df.columns = live_df.columns.get_level_values(0)
             
             if live_df.index.tzinfo is not None:
                 live_df.index = live_df.index.tz_convert('Asia/Seoul').tz_localize(None)
@@ -209,10 +206,10 @@ def fetch_krx_data(code, s_str, e_str, interval, extra_data):
             
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
-                     if 'Close' in df.columns.get_level_values(0):
-                          df.columns = df.columns.get_level_values(0)
-                     elif 'Close' in df.columns.get_level_values(1):
-                          df.columns = df.columns.get_level_values(1)
+                     try:
+                         df = df.xs(yf_ticker, level=1, axis=1)
+                     except:
+                         df.columns = df.columns.get_level_values(0)
                 if df.index.tzinfo is not None:
                     df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
         else:
@@ -306,10 +303,10 @@ def fetch_us_data(ticker, s_str, e_str, interval):
     
     if not df.empty:
         if isinstance(df.columns, pd.MultiIndex):
-             if 'Close' in df.columns.get_level_values(0):
+             try:
+                 df = df.xs(ticker, level=1, axis=1)
+             except:
                  df.columns = df.columns.get_level_values(0)
-             elif 'Close' in df.columns.get_level_values(1):
-                 df.columns = df.columns.get_level_values(1)
             
         if df.index.tzinfo is not None:
             df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
@@ -996,6 +993,7 @@ with tab_kr:
             pass
         
         st.error("종목 목록을 가져오는데 실패했습니다 (KRX, KRX-DESC 수배 오류). 일시적인 접속장애일 수 있습니다.")
+        get_krx_mapping.clear()
         return {}
 
     # Get Ticker Mapping
@@ -1143,10 +1141,110 @@ with tab_kr:
         df_subset['is_breakout'] = breakouts
         return df_subset
 
+    def process_top_10(df_subset, ticker_map, base_date_str):
+        """Process Top 10 DataFrame: Add Name, 52-Week High, Breakout Flag."""
+        df_subset = df_subset.copy()
+        
+        # Add Naver Finance links
+        df_subset['종목명'] = [f"https://finance.naver.com/item/main.naver?code={t}&name={ticker_map.get(t, t)}" for t in df_subset.index]
+        
+        high_prices = []
+        breakouts = []
+        opens, highs, lows = [], [], []
+        
+        import FinanceDataReader as fdr
+        start_date_52 = datetime.today() - timedelta(days=365)
+        
+        for ticker in df_subset.index:
+            try:
+                curr_close = float(df_subset.loc[ticker, '현재가'])
+                df_high = fdr.DataReader(ticker, start_date_52)
+                
+                if not df_high.empty and 'High' in df_high.columns:
+                    display_high = df_high['High'].max()
+                    high_prices.append(display_high)
+                    if len(df_high) > 1:
+                        prev_high = df_high['High'].iloc[:-1].max()
+                    else:
+                        prev_high = 0
+                    is_bk = (prev_high > 0) and (curr_close >= prev_high)
+                    breakouts.append(is_bk)
+                    
+                    opens.append(df_high['Open'].iloc[-1])
+                    highs.append(df_high['High'].iloc[-1])
+                    lows.append(df_high['Low'].iloc[-1])
+                else:
+                    high_prices.append(0)
+                    breakouts.append(False)
+                    opens.append(curr_close); highs.append(curr_close); lows.append(curr_close)
+            except:
+                high_prices.append(0)
+                breakouts.append(False)
+                c = float(df_subset.loc[ticker, '현재가']) if '현재가' in df_subset.columns else 0
+                opens.append(c); highs.append(c); lows.append(c)
+                
+        df_subset['52주최고'] = high_prices
+        df_subset['is_breakout'] = breakouts
+        df_subset['시가'] = opens
+        df_subset['고가'] = highs
+        df_subset['저가'] = lows
+        return df_subset
+
+    def render_horizontal_candles(df, ticker_map, max_pct=30.0):
+        html = '<div style="font-family: sans-serif; font-size: 14px; margin-top: 10px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 30px;">'
+        for ticker in df.index:
+            try:
+                name = ticker_map.get(ticker, str(ticker))
+                close_p = float(df.loc[ticker, '현재가'])
+                open_p = float(df.loc[ticker, '시가']) if '시가' in df.columns else close_p
+                high_p = float(df.loc[ticker, '고가']) if '고가' in df.columns else close_p
+                low_p = float(df.loc[ticker, '저가'])  if '저가' in df.columns else close_p
+                c_pct = float(df.loc[ticker, '등락률'])
+                
+                prev_close = close_p / (1 + c_pct / 100.0) if c_pct > -100 else close_p
+                if prev_close <= 0: continue
+                
+                o_pct = (open_p - prev_close) / prev_close * 100
+                h_pct = (high_p - prev_close) / prev_close * 100
+                l_pct = (low_p - prev_close) / prev_close * 100
+                
+                def cap(p): return max(-max_pct, min(max_pct, p))
+                o_cap, h_cap, l_cap, c_cap = cap(o_pct), cap(h_pct), cap(l_pct), cap(c_pct)
+                def get_x(p): return (p + max_pct) / (max_pct * 2) * 100
+                x_o, x_h, x_l, x_c = get_x(o_cap), get_x(h_cap), get_x(l_cap), get_x(c_cap)
+                
+                body_left = min(x_o, x_c)
+                body_width = max(0.5, abs(x_o - x_c))
+                color = "#D32F2F" if c_pct >= 0 else "#1976D2"
+                
+                html += f'''
+<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px 15px; background: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; align-items: stretch; gap: 15px;">
+  <div style="flex: 1 1 100%;">
+    <div style="margin-bottom: 25px; font-weight: bold; font-size: 15px;">
+        {name} <span style="font-size: 13px; color: gray; font-weight: normal;">({close_p:,.0f}원 <span style="color: {color};">{c_pct:+.2f}%</span>)</span>
+    </div>
+    <div style="position: relative; width: 100%; height: 40px; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e9ecef;">
+      <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background-color: #adb5bd; z-index: 1;"></div>
+      <div style="position: absolute; left: {x_l}%; width: {x_h - x_l}%; top: 19px; height: 2px; background-color: #495057; z-index: 2;"></div>
+      <div style="position: absolute; left: {body_left}%; width: {body_width}%; top: 8px; height: 24px; background-color: {color}; border-radius: 2px; z-index: 3;"></div>
+      <div style="position: absolute; left: {x_o}%; top: 0; height: 40px; border-left: 2px dashed #343a40; z-index: 4;"></div>
+      <div style="position: absolute; left: {x_o}%; top: -19px; font-size: 11px; color: #495057; transform: translateX(-50%); white-space: nowrap;">시 {open_p:,.0f}</div>
+      <div style="position: absolute; left: {x_c}%; top: 0; height: 40px; border-left: 2px solid #212529; z-index: 5;"></div>
+      <div style="position: absolute; left: {x_c}%; top: 43px; font-size: 12px; font-weight: bold; color: {color}; transform: translateX(-50%); white-space: nowrap;">종 {close_p:,.0f}</div>
+      <div style="position: absolute; left: {x_l}%; top: 62px; font-size: 11px; color: #6c757d; transform: translateX(-100%); padding-right: 6px; text-align: right; line-height: 1.2;">저 {low_p:,.0f}<br>({l_pct:+.1f}%)</div>
+      <div style="position: absolute; left: {x_h}%; top: 62px; font-size: 11px; color: #6c757d; transform: translateX({'0' if x_h < 80 else '-100%'}); padding-left: 6px; line-height: 1.2;">고 {high_p:,.0f}<br>({h_pct:+.1f}%)</div>
+    </div>
+  </div>
+</div>'''
+            except Exception as e:
+                pass
+        html += '</div>'
+        return html
+
     @st.cache_data(ttl=60)
     def get_naver_ranking(type="quant"):
-        # We fetch the top 100 by volume (sise_quant), then sort by amount (거래대금) if requested
-        url = 'https://finance.naver.com/sise/sise_quant.naver'
+        # type="quant" (Volume), type="amount" (Value)
+        url = f'https://finance.naver.com/sise/sise_{type}.naver'
         headers = {'User-Agent': 'Mozilla/5.0'}
         try:
             import requests
@@ -1159,25 +1257,23 @@ with tab_kr:
             ticker_map = {a.text: a['href'].split('code=')[-1] for a in links}
             
             dfs = pd.read_html(io.StringIO(r.text), encoding='euc-kr')
-            df = dfs[1].dropna(how='all')
+            df = dfs[1].dropna(how='all').copy()
+            
+            # Map columns cleanly
+            if type == "quant":
+                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+            else:
+                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
             
             df['Ticker'] = df['종목명'].map(ticker_map)
             
-            # Convert to numeric for sorting
+            # Convert to numeric
             for col in ['현재가', '거래량', '거래대금']:
                 if col in df.columns:
                      df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
             
             if '등락률' in df.columns:
                 df['등락률'] = pd.to_numeric(df['등락률'].astype(str).str.replace('%', '').str.replace('+', ''), errors='coerce')
-
-            # Sort and Map columns
-            if type == "amount":
-                 df = df.sort_values(by="거래대금", ascending=False).head(10)
-                 df = df[['N', 'Ticker', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
-            else:
-                 df = df.head(10)
-                 df = df[['N', 'Ticker', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
                 
             return df
         except Exception as e:
@@ -1195,7 +1291,11 @@ with tab_kr:
         column_config = {
             "종목명": st.column_config.LinkColumn("종목명", display_text=r"name=([^&]+)", help="클릭 시 네이버페이 증권 차트로 이동합니다. 배경색 있는 종목은 52주 신고가(Highlighted: 52-Week High)", max_chars=100),
             "등락률": st.column_config.TextColumn("등락률"),
-            "is_breakout": st.column_config.CheckboxColumn("전고점 돌파", default=False)
+            "is_breakout": st.column_config.CheckboxColumn("전고점 돌파", default=False),
+            "52주최고": st.column_config.TextColumn("52주최고"),
+            "시가": st.column_config.TextColumn("시가"),
+            "고가": st.column_config.TextColumn("고가"),
+            "저가": st.column_config.TextColumn("저가")
         }
 
         @st.fragment
@@ -1224,7 +1324,14 @@ with tab_kr:
                          styler = styler.map(format_price_change, subset=['등락률'])
 
                     styler = styler.apply(color_name, axis=1)
-                    st.dataframe(styler, column_config=column_config)
+                    
+                    use_kr_candle = st.toggle("📈 거래량 상위 Top 10: 가로 캔들 차트로 보기", key="toggle_kr_vol")
+                    if use_kr_candle:
+                        html_vol = render_horizontal_candles(top_10, ticker_to_name, max_pct=30.0)
+                        import streamlit.components.v1 as components
+                        components.html(html_vol, height=900, scrolling=True)
+                    else:
+                        st.dataframe(styler, column_config=column_config)
 
                 # --- Top 10 Trading Value (거래대금) ---
                 st.subheader(f"💰 오늘의 거래대금 TOP 10 ({krx_time_str})")
@@ -1253,7 +1360,14 @@ with tab_kr:
                              styler_val = styler_val.map(format_price_change, subset=['등락률'])
 
                         styler_val = styler_val.apply(color_name, axis=1)
-                        st.dataframe(styler_val, column_config=column_config)
+                        
+                        use_kr_val_candle = st.toggle("📈 거래대금 상위 Top 10: 가로 캔들 차트로 보기", key="toggle_kr_val")
+                        if use_kr_val_candle:
+                            html_val = render_horizontal_candles(top_10_val, ticker_to_name, max_pct=30.0)
+                            import streamlit.components.v1 as components
+                            components.html(html_val, height=900, scrolling=True)
+                        else:
+                            st.dataframe(styler_val, column_config=column_config)
                 else:
                     st.warning("'거래대금' 데이터를 가져올 수 없습니다.")
             else:
@@ -1288,7 +1402,7 @@ with tab_kr:
     default_opts = ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"]
     extra_data_sel = st.session_state.get("kr_data_sel", default_opts)
 
-    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", width='stretch'):
+    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", use_container_width=True):
         st.session_state['run_krx'] = True
 
         # Retrieve inputs for Recent Logic
@@ -1757,7 +1871,7 @@ with tab_us:
     start_date_us = st.session_state.get("us_start", datetime.today() - timedelta(days=365))
     end_date_us = st.session_state.get("us_end", datetime.today())
     interval_us_sel = st.session_state.get("us_int", "전체 (All)")
-    if st.button("🚀 분석 실행 (US Analysis)", type="primary", width='stretch'):
+    if st.button("🚀 분석 실행 (US Analysis)", type="primary", use_container_width=True):
         st.session_state['run_us'] = True
 
         # Retrieve inputs for Recent Logic
@@ -1855,10 +1969,7 @@ with tab_us:
                         if not df_h_raw.empty:
                             if isinstance(df_h_raw.columns, pd.MultiIndex):
                                 df_h_us = df_h_raw.copy()
-                                if 'Close' in df_h_us.columns.get_level_values(0):
-                                     df_h_us.columns = df_h_us.columns.get_level_values(0)
-                                elif 'Close' in df_h_us.columns.get_level_values(1):
-                                     df_h_us.columns = df_h_us.columns.get_level_values(1)
+                                df_h_us.columns = df_h_us.columns.droplevel(0)
                             else:
                                 df_h_us = df_h_raw
                             if df_h_us.index.tzinfo is not None:
