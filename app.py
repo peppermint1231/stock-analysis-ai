@@ -482,19 +482,25 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
         pill_val = st.session_state.get('kr_pill_clicked_val')
         
         if name_to_ticker:
-            # Set default index dynamically based on pill click or initial load
-            curr_idx = default_index
+            if "kr_select_box" not in st.session_state:
+                st.session_state["kr_select_box"] = sorted_names[default_index] if sorted_names else None
+            
             if pill_val and pill_val in sorted_names:
-                 curr_idx = sorted_names.index(pill_val)
-                 st.session_state['kr_pill_clicked_val'] = None # Reset
-                 
-            st.selectbox("종목 선택 (이름으로 검색)", sorted_names, index=curr_idx, key="kr_select_box")
+                st.session_state["kr_select_box"] = pill_val
+                st.session_state['kr_pill_clicked_val'] = None
+                
+            st.selectbox("종목 선택 (이름으로 검색)", sorted_names, key="kr_select_box")
             selected_name = st.session_state.get("kr_select_box")
         else:
-            curr_val = pill_val if pill_val else "005930"
-            if pill_val: st.session_state['kr_pill_clicked_val'] = None # Reset
-            
-            st.text_input("종목 코드 입력 (예: 005930)", value=curr_val, key="kr_code_input")
+            if "kr_code_input" not in st.session_state:
+                st.session_state["kr_code_input"] = pill_val if pill_val else "005930"
+            elif pill_val:
+                st.session_state["kr_code_input"] = pill_val
+                
+            if pill_val:
+                st.session_state['kr_pill_clicked_val'] = None
+                
+            st.text_input("종목 코드 입력 (예: 005930)", key="kr_code_input")
             kr_code_input = st.session_state.get("kr_code_input")
         
         # --- Recent Searches (KRX) ---
@@ -554,18 +560,24 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
         pill_val = st.session_state.get('us_pill_clicked_val')
         
         if us_name_to_ticker:
-            # Set default index dynamically based on pill click or initial load
-            curr_idx = default_idx
-            if pill_val and pill_val in us_sorted_names:
-                 curr_idx = us_sorted_names.index(pill_val)
-                 st.session_state['us_pill_clicked_val'] = None # Reset
-                 
-            st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, index=curr_idx, key="us_select_box")
-        else:
-            curr_val = pill_val if pill_val else "AAPL"
-            if pill_val: st.session_state['us_pill_clicked_val'] = None # Reset
+            if "us_select_box" not in st.session_state:
+                st.session_state["us_select_box"] = us_sorted_names[default_idx] if us_sorted_names else None
             
-            st.text_input("티커 입력 (예: AAPL, TSLA)", value=curr_val, key="us_ticker_input")
+            if pill_val and pill_val in us_sorted_names:
+                st.session_state["us_select_box"] = pill_val
+                st.session_state['us_pill_clicked_val'] = None
+                
+            st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, key="us_select_box")
+        else:
+            if "us_ticker_input" not in st.session_state:
+                st.session_state["us_ticker_input"] = pill_val if pill_val else "AAPL"
+            elif pill_val:
+                st.session_state["us_ticker_input"] = pill_val
+                
+            if pill_val:
+                st.session_state['us_pill_clicked_val'] = None
+                
+            st.text_input("티커 입력 (예: AAPL, TSLA)", key="us_ticker_input")
 
         # --- Recent Searches (US) ---
         ls_recent_us = localS.getItem("recent_us")
@@ -1125,7 +1137,13 @@ with tab_kr:
         try:
             import requests
             import io
+            from bs4 import BeautifulSoup
             r = requests.get(url, headers=headers)
+            
+            soup = BeautifulSoup(r.text, 'html.parser')
+            links = soup.select('a.tltle')
+            ticker_map = {a.text: a['href'].split('code=')[-1] for a in links}
+            
             dfs = pd.read_html(io.StringIO(r.text), encoding='euc-kr')
             df = dfs[1].dropna(how='all').head(10)
             
@@ -1134,6 +1152,8 @@ with tab_kr:
                  df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
             else:
                  df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+            
+            df['Ticker'] = df['종목명'].map(ticker_map)
             
             # Convert to numeric
             for col in ['현재가', '거래량', '거래대금']:
@@ -1168,8 +1188,8 @@ with tab_kr:
                 top_10 = get_naver_ranking("quant")
             
             if not top_10.empty:
-                # Add Tickers and process 52-week highs
-                top_10['Ticker'] = top_10['종목명'].map(name_to_ticker_map)
+                # Tickers are now directly in the dataframe from Naver web scraping
+                top_10 = top_10.dropna(subset=['Ticker'])
                 top_10 = top_10.dropna(subset=['Ticker'])
                 if not top_10.empty:
                     top_10 = top_10.set_index('Ticker')
@@ -1197,7 +1217,7 @@ with tab_kr:
                     top_10_val = get_naver_ranking("amount")
 
                 if not top_10_val.empty:
-                    top_10_val['Ticker'] = top_10_val['종목명'].map(name_to_ticker_map)
+                    top_10_val = top_10_val.dropna(subset=['Ticker'])
                     top_10_val = top_10_val.dropna(subset=['Ticker'])
                     
                     if not top_10_val.empty:
