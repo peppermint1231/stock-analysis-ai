@@ -92,7 +92,10 @@ def append_live_minute_data(df, ticker, m_name=None):
         live_df = yf.download(yf_ticker, period="1d", interval="1m", progress=False)
         if not live_df.empty:
             if isinstance(live_df.columns, pd.MultiIndex):
-                live_df.columns = live_df.columns.get_level_values(0)
+                 if 'Close' in live_df.columns.get_level_values(0):
+                      live_df.columns = live_df.columns.get_level_values(0)
+                 elif 'Close' in live_df.columns.get_level_values(1):
+                      live_df.columns = live_df.columns.get_level_values(1)
             
             if live_df.index.tzinfo is not None:
                 live_df.index = live_df.index.tz_convert('Asia/Seoul').tz_localize(None)
@@ -206,10 +209,10 @@ def fetch_krx_data(code, s_str, e_str, interval, extra_data):
             
             if not df.empty:
                 if isinstance(df.columns, pd.MultiIndex):
-                     try:
-                         df = df.xs(yf_ticker, level=1, axis=1)
-                     except:
-                         df.columns = df.columns.get_level_values(0)
+                     if 'Close' in df.columns.get_level_values(0):
+                          df.columns = df.columns.get_level_values(0)
+                     elif 'Close' in df.columns.get_level_values(1):
+                          df.columns = df.columns.get_level_values(1)
                 if df.index.tzinfo is not None:
                     df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
         else:
@@ -303,10 +306,10 @@ def fetch_us_data(ticker, s_str, e_str, interval):
     
     if not df.empty:
         if isinstance(df.columns, pd.MultiIndex):
-             try:
-                 df = df.xs(ticker, level=1, axis=1)
-             except:
+             if 'Close' in df.columns.get_level_values(0):
                  df.columns = df.columns.get_level_values(0)
+             elif 'Close' in df.columns.get_level_values(1):
+                 df.columns = df.columns.get_level_values(1)
             
         if df.index.tzinfo is not None:
             df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
@@ -1142,8 +1145,8 @@ with tab_kr:
 
     @st.cache_data(ttl=60)
     def get_naver_ranking(type="quant"):
-        # type="quant" (Volume), type="amount" (Value)
-        url = f'https://finance.naver.com/sise/sise_{type}.naver'
+        # We fetch the top 100 by volume (sise_quant), then sort by amount (거래대금) if requested
+        url = 'https://finance.naver.com/sise/sise_quant.naver'
         headers = {'User-Agent': 'Mozilla/5.0'}
         try:
             import requests
@@ -1156,23 +1159,25 @@ with tab_kr:
             ticker_map = {a.text: a['href'].split('code=')[-1] for a in links}
             
             dfs = pd.read_html(io.StringIO(r.text), encoding='euc-kr')
-            df = dfs[1].dropna(how='all').head(10)
-            
-            # Map columns cleanly
-            if type == "quant":
-                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
-            else:
-                 df = df[['N', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+            df = dfs[1].dropna(how='all')
             
             df['Ticker'] = df['종목명'].map(ticker_map)
             
-            # Convert to numeric
+            # Convert to numeric for sorting
             for col in ['현재가', '거래량', '거래대금']:
                 if col in df.columns:
                      df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
             
             if '등락률' in df.columns:
                 df['등락률'] = pd.to_numeric(df['등락률'].astype(str).str.replace('%', '').str.replace('+', ''), errors='coerce')
+
+            # Sort and Map columns
+            if type == "amount":
+                 df = df.sort_values(by="거래대금", ascending=False).head(10)
+                 df = df[['N', 'Ticker', '종목명', '현재가', '전일비', '등락률', '거래대금', '거래량', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
+            else:
+                 df = df.head(10)
+                 df = df[['N', 'Ticker', '종목명', '현재가', '전일비', '등락률', '거래량', '거래대금', '매수호가', '매도호가', '시가총액', 'PER', 'ROE']]
                 
             return df
         except Exception as e:
@@ -1283,7 +1288,7 @@ with tab_kr:
     default_opts = ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"]
     extra_data_sel = st.session_state.get("kr_data_sel", default_opts)
 
-    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", use_container_width=True):
+    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", width='stretch'):
         st.session_state['run_krx'] = True
 
         # Retrieve inputs for Recent Logic
@@ -1752,7 +1757,7 @@ with tab_us:
     start_date_us = st.session_state.get("us_start", datetime.today() - timedelta(days=365))
     end_date_us = st.session_state.get("us_end", datetime.today())
     interval_us_sel = st.session_state.get("us_int", "전체 (All)")
-    if st.button("🚀 분석 실행 (US Analysis)", type="primary", use_container_width=True):
+    if st.button("🚀 분석 실행 (US Analysis)", type="primary", width='stretch'):
         st.session_state['run_us'] = True
 
         # Retrieve inputs for Recent Logic
@@ -1850,7 +1855,10 @@ with tab_us:
                         if not df_h_raw.empty:
                             if isinstance(df_h_raw.columns, pd.MultiIndex):
                                 df_h_us = df_h_raw.copy()
-                                df_h_us.columns = df_h_us.columns.droplevel(0)
+                                if 'Close' in df_h_us.columns.get_level_values(0):
+                                     df_h_us.columns = df_h_us.columns.get_level_values(0)
+                                elif 'Close' in df_h_us.columns.get_level_values(1):
+                                     df_h_us.columns = df_h_us.columns.get_level_values(1)
                             else:
                                 df_h_us = df_h_raw
                             if df_h_us.index.tzinfo is not None:

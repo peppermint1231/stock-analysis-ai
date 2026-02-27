@@ -64,6 +64,10 @@ def resample_ohlcv(df, period):
     if period == 'D':
         return df.copy()
         
+    # Map deprecated pandas resample aliases
+    period_map = {'M': 'ME', 'Y': 'YE'}
+    period = period_map.get(period, period)
+        
     # Validation: Ensure index is Datetime
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
