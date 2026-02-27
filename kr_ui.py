@@ -137,40 +137,47 @@ box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:
 # ─── Top-10 Processing ────────────────────────────────────────────────────────
 
 def process_top_10(df_subset: pd.DataFrame, ticker_map: dict[str, str], base_date_str: str) -> pd.DataFrame:
-    """Top 10 DataFrame에 종목명 링크, 52주 고가, 돌파 여부를 추가합니다."""
+    """Top 10 DataFrame에 종목명 링크, 52주 고가, 돌파 여부를 추가합니다.
+
+    pykrx 데이터에는 이미 시가/고가/저가가 포함되어 있으므로 재조회하지 않습니다.
+    52주 최고가만 FDR로 별도 조회합니다.
+    """
     df = df_subset.copy()
 
+    # 종목명 컬럼 = 네이버 증권 링크
     df["종목명"] = [
         f"https://finance.naver.com/item/main.naver?code={t}&name={ticker_map.get(t, t)}"
         for t in df.index
     ]
 
-    high_prices, breakouts, opens, highs, lows = [], [], [], [], []
+    # 현재가 컬럼 결정 (종가 or 현재가)
+    price_col = "종가" if "종가" in df.columns else "현재가"
+
+    high_prices, breakouts = [], []
     start_52 = datetime.today() - timedelta(days=365)
 
     for ticker in df.index:
         try:
-            curr_close = float(df.loc[ticker, "현재가"])
+            curr_close = float(df.loc[ticker, price_col])
             hist = fdr.DataReader(ticker, start_52)
             if not hist.empty and "High" in hist.columns:
                 prev_high = hist["High"].iloc[:-1].max() if len(hist) > 1 else 0
                 high_prices.append(hist["High"].max())
                 breakouts.append(bool(prev_high > 0 and curr_close >= prev_high))
-                opens.append(hist["Open"].iloc[-1])
-                highs.append(hist["High"].iloc[-1])
-                lows.append(hist["Low"].iloc[-1])
             else:
                 raise ValueError("empty")
         except Exception:
-            c = float(df.loc[ticker, "현재가"]) if "현재가" in df.columns else 0
-            high_prices.append(0); breakouts.append(False)
-            opens.append(c); highs.append(c); lows.append(c)
+            high_prices.append(0)
+            breakouts.append(False)
 
     df["52주최고"] = high_prices
     df["is_breakout"] = breakouts
-    df["시가"] = opens
-    df["고가"] = highs
-    df["저가"] = lows
+
+    # 시가/고가/저가가 없는 경우에만 종가로 채움 (pykrx 데이터엔 이미 있음)
+    for col in ("시가", "고가", "저가"):
+        if col not in df.columns:
+            df[col] = df[price_col]
+
     return df
 
 
@@ -223,31 +230,31 @@ def render_krx_ranking(
     numeric_cols: list[str],
     display_cols: list[str],
 ) -> None:
-    """거래량 / 거래대금 Top 10 순위를 렌더링합니다."""
-    from krx_data import get_naver_ranking
+    """KRX 전 종목 데이터에서 거래량 / 거래대금 Top 10을 렌더링합니다."""
+    from krx_data import get_krx_ranking
 
-    # 거래량 Top 10
     ticker_to_name = {v: k for k, v in name_to_ticker_map.items()}
 
-    with st.spinner("네이버 증권에서 오늘의 실시간 랭킹을 가져오는 중..."):
-        top_vol = get_naver_ranking("quant")
+    with st.spinner("KRX에서 오늘의 실시간 시장 데이터를 가져오는 중..."):
+        all_df = get_krx_ranking()
 
-    if top_vol.empty:
+    if all_df.empty:
         st.info("장 시작 전이거나 휴장일입니다. (No Data for Ranking)")
         return
 
-    top_vol = top_vol.dropna(subset=["Ticker"]).set_index("Ticker")
+    vol_col = "거래량" if "거래량" in all_df.columns else "Volume"
+    val_col = "거래대금" if "거래대금" in all_df.columns else None
+
+    # 거래량 Top 10
+    top_vol = all_df.sort_values(vol_col, ascending=False).head(10).copy()
     top_vol = process_top_10(top_vol, ticker_to_name, today_str)
     _render_table(top_vol, display_cols, numeric_cols, "toggle_kr_vol", ticker_to_name)
 
     # 거래대금 Top 10
     st.subheader(f"💰 오늘의 거래대금 TOP 10 ({krx_time_str})")
-    with st.spinner("네이버 증권에서 실시간 거래대금 랭킹을 가져오는 중..."):
-        top_val = get_naver_ranking("amount")
-
-    if not top_val.empty:
-        top_val = top_val.dropna(subset=["Ticker"]).set_index("Ticker")
+    if val_col:
+        top_val = all_df.sort_values(val_col, ascending=False).head(10).copy()
         top_val = process_top_10(top_val, ticker_to_name, today_str)
         _render_table(top_val, display_cols, numeric_cols, "toggle_kr_val", ticker_to_name)
     else:
-        st.warning("'거래대금' 데이터를 가져올 수 없습니다.")
+        st.warning("'거래대금' 컬럼을 찾을 수 없습니다.")

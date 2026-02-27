@@ -243,44 +243,53 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
     return start
 
 
-# ─── Naver Rankings ───────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=60)
-def get_naver_ranking(kind: str = "quant") -> pd.DataFrame:
-    """네이버 금융 거래량(quant) 또는 거래대금(amount) Top 랭킹을 반환합니다."""
-    from bs4 import BeautifulSoup
+# ─── KRX Rankings (pykrx) ────────────────────────────────────────────────────
 
-    url = (
-        "https://finance.naver.com/sise/sise_quant_high.naver"
-        if kind == "amount"
-        else "https://finance.naver.com/sise/sise_quant.naver"
-    )
+@st.cache_data(ttl=60, show_spinner=False)
+def get_krx_ranking() -> pd.DataFrame:
+    """KRX에서 전 종목 OHLCV 데이터를 직접 가져옵니다.
+
+    pykrx stock.get_market_ohlcv(date, market="ALL") 사용.
+    최근 10 거래일을 역순으로 조회하여 거래량이 있는 날의 데이터를 반환합니다.
+    반환 DataFrame 인덱스 = 종목코드, 컬럼 = 시가/고가/저가/종가/거래량/거래대금/등락률 + 현재가(종가 별칭)
+    """
     try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(r.text, "html.parser")
-        ticker_map = {a.text: a["href"].split("code=")[-1] for a in soup.select("a.tltle")}
-
-        dfs = pd.read_html(io.StringIO(r.text), encoding="euc-kr")
-        df = dfs[1].dropna(how="all").copy()
-
-        if kind == "quant":
-            want = ["N", "종목명", "현재가", "전일비", "등락률", "거래량", "거래대금", "매수호가", "매도호가", "시가총액", "PER", "ROE"]
-        else:
-            want = ["N", "종목명", "현재가", "전일비", "등락률", "거래대금", "거래량", "매수호가", "매도호가", "시가총액", "PER", "ROE"]
-
-        df = df[[c for c in want if c in df.columns]]
-        df["Ticker"] = df["종목명"].map(ticker_map)
-
-        for col in ("현재가", "거래량", "거래대금"):
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
-
-        if "등락률" in df.columns:
-            df["등락률"] = pd.to_numeric(
-                df["등락률"].astype(str).str.replace("%", "").str.replace("+", ""),
-                errors="coerce",
-            )
-
-        return df
-    except Exception:
+        from pykrx import stock as pykrx_stock
+    except ImportError:
+        st.warning("pykrx 패키지가 설치되지 않았습니다. requirements.txt에 pykrx를 추가해주세요.")
         return pd.DataFrame()
+
+    check_date = datetime.today()
+    for _ in range(10):
+        d_str = check_date.strftime("%Y%m%d")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                df = pykrx_stock.get_market_ohlcv(d_str, market="ALL")
+
+            if df.empty:
+                check_date -= timedelta(days=1)
+                continue
+
+            vol_col = "거래량" if "거래량" in df.columns else "Volume"
+            if vol_col not in df.columns or df[vol_col].sum() == 0:
+                check_date -= timedelta(days=1)
+                continue
+
+            # 현재가 = 종가 별칭 (하위 호환)
+            if "종가" in df.columns:
+                df["현재가"] = df["종가"]
+            elif "Close" in df.columns:
+                df["현재가"] = df["Close"]
+
+            # 등락률이 없으면 시가/종가로 계산
+            if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
+                df["등락률"] = ((df["종가"] - df["시가"]) / df["시가"].replace(0, float("nan")) * 100).round(2)
+
+            return df
+
+        except Exception:
+            check_date -= timedelta(days=1)
+
+    return pd.DataFrame()
+
