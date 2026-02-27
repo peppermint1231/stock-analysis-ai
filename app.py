@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 
-import pkg_resources
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np

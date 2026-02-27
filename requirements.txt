@@ -4,7 +4,6 @@ pandas==2.2.3
 numpy
 plotly
 requests
-setuptools
 google-generativeai
 lxml
 openpyxl
