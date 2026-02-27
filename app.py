@@ -1018,21 +1018,24 @@ with tab_kr:
 
     @st.cache_data(show_spinner="전체 종목 리스트를 불러오는 중입니다... (최초 1회 소요)")
     def get_krx_mapping():
-        """Fetches all KRX tickers and names efficiently using FinanceDataReader."""
+        """Fetches all KRX tickers and names efficiently using FinanceDataReader with fallbacks."""
+        import FinanceDataReader as fdr
         try:
-            import FinanceDataReader as fdr
             df = fdr.StockListing('KRX')
+            if not df.empty and 'Code' in df.columns and 'Name' in df.columns:
+                return dict(zip(df['Code'], df['Name']))
+        except Exception:
+            pass
             
-            if df.empty:
-                return {}
-            
-            # Create a dictionary from 'Code' to 'Name'
-            ticker_to_name = dict(zip(df['Code'], df['Name']))
-            return ticker_to_name
-
-        except Exception as e:
-            st.error(f"종목 목록을 가져오는데 실패했습니다: {e}")
-            return {}
+        try:
+            df = fdr.StockListing('KRX-DESC')
+            if not df.empty and 'Code' in df.columns and 'Name' in df.columns:
+                return dict(zip(df['Code'], df['Name']))
+        except Exception:
+            pass
+        
+        st.error("종목 목록을 가져오는데 실패했습니다 (KRX, KRX-DESC 모두 실패). 일시적인 접속장애일 수 있습니다.")
+        return {}
 
     # Get Ticker Mapping
     ticker_to_name = get_krx_mapping()
@@ -1313,7 +1316,23 @@ with tab_kr:
         except Exception:
             pass
             
-        if not df.empty:
+        if df is None or df.empty:
+            # krx.get_market_ohlcv_by_ticker("ALL") 이 동작하지 않을 때 pykrx 주식 모듈로 대체
+            try:
+                from pykrx import stock
+                df1 = stock.get_market_ohlcv(d_str, market="KOSPI")
+                df2 = stock.get_market_ohlcv(d_str, market="KOSDAQ")
+                
+                frames = []
+                if df1 is not None and not df1.empty: frames.append(df1)
+                if df2 is not None and not df2.empty: frames.append(df2)
+                
+                if frames:
+                    df = pd.concat(frames)
+            except Exception:
+                pass
+                
+        if df is not None and not df.empty:
             # 영어 컬럼 → 한국어로 변환
             rename_dict = {
                 'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
@@ -1331,7 +1350,8 @@ with tab_kr:
                         return pd.DataFrame()
                 except Exception:
                     pass
-        return df
+            return df
+        return pd.DataFrame()
 
     try:
         # 만약 기존에 캐시된 데이터가 모두 0(휴장일 데이터)이라면 세션에서 삭제하여 다시 불러오도록 함
