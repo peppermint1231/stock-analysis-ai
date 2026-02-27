@@ -1,93 +1,18 @@
 import streamlit as st
 import yfinance as yf
 
-# pkg_resources compatibility shim for Python 3.12+ / Streamlit Cloud
-# pykrx의 __init__.py가 pkg_resources를 사용하므로 없는 경우 대체 모듈 주입
-import sys, types, os as _os, importlib.util as _util
-try:
-    import importlib.metadata as _meta
-except ImportError:
-    _meta = None
+import pkg_resources
+import streamlit.components.v1 as components
+import pandas as pd
+import numpy as np
+import requests
+import io
+import time
+from streamlit_autorefresh import st_autorefresh
+import threading
+from streamlit.runtime.scriptrunner import add_script_run_ctx
+from streamlit_local_storage import LocalStorage
 
-try:
-    import pkg_resources  # noqa: F401
-    # setuptools는 있으나 resource_filename이 없는 경우 보완
-    if not hasattr(pkg_resources, 'resource_filename'):
-        raise AttributeError
-except Exception:
-    _pkg = types.ModuleType("pkg_resources")
-    def _get_dist(name):
-        try:
-            v = _meta.version(name) if _meta else "0.0.0"
-        except Exception:
-            v = "0.0.0"
-        return type("Dist", (), {"version": v, "PKG-INFO": ""})()
-    def _resource_filename(package_or_req, resource_name):
-        try:
-            spec = _util.find_spec(package_or_req)
-            if spec and spec.origin:
-                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
-        except Exception:
-            pass
-        return resource_name
-    _pkg.get_distribution = _get_dist
-    _pkg.resource_filename = _resource_filename
-    _pkg.DistributionNotFound = Exception
-    _pkg.VersionConflict = Exception
-    sys.modules["pkg_resources"] = _pkg
-
-from pykrx import stock
-
-# ── pykrx 호환성 패치 ────────────────────────────────────────────────────────
-_EN_KR_COL_MAP = {
-    'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
-    'Volume': '거래량', 'Value': '거래대금', 'ChangeRate': '등락률',
-    'Change': '등락률', 'MarketCap': '시가총액', 'Shares': '상장주식수',
-}
-
-def _patch_pykrx_ohlcv():
-    import pkgutil, importlib, pykrx as _pykrx, pandas as _pd
-    import pykrx.stock.stock_api as _sa
-
-    # pykrx 전체에서 OhlcvByTicker 탐색
-    _FetcherCls = None
-    for pkg in pkgutil.walk_packages(_pykrx.__path__, _pykrx.__name__ + '.'):
-        try:
-            mod = importlib.import_module(pkg.name)
-        except Exception:
-            continue
-        cls = getattr(mod, 'OhlcvByTicker', None)
-        if cls is not None and hasattr(cls, 'fetch'):
-            _FetcherCls = cls
-            break
-
-    if _FetcherCls is None:
-        return
-
-    def _safe_ohlcv_by_ticker(date, market="KOSPI", prev_close=False):
-        try:
-            df = _FetcherCls(date, market).fetch()
-        except Exception:
-            return _pd.DataFrame()
-        if df is None or df.empty:
-            return _pd.DataFrame()
-        df = df.rename(columns=_EN_KR_COL_MAP)
-        kr_ohlc = ['시가', '고가', '저가', '종가']
-        if all(c in df.columns for c in kr_ohlc):
-            try:
-                if (df[kr_ohlc] == 0).all(axis=None):
-                    return _pd.DataFrame()
-            except Exception:
-                pass
-        return df
-
-    _sa.get_market_ohlcv_by_ticker = _safe_ohlcv_by_ticker
-    try:
-        stock.get_market_ohlcv_by_ticker = _safe_ohlcv_by_ticker
-    except Exception:
-        pass
-
-_patch_pykrx_ohlcv()
 # ─────────────────────────────────────────────────────────────────────────────
 
 import plotly.graph_objects as go
@@ -266,12 +191,9 @@ def fetch_krx_data(code, s_str, e_str, interval, extra_data):
             
             suffix = ".KS"
             try:
-                # This KOSDAQ check might be slow if uncached, but get_market_ticker_list is cached by pykrx internally usually
-                # But better to optimize? For now, keep as is or rely on checking if it works.
-                # Actually, we can just try both or assume defaults. 
-                # Let's keep original logic but handle the import inside or assume global.
-                kosdaq_list = stock.get_market_ticker_list(market="KOSDAQ")
-                if code in kosdaq_list:
+                import FinanceDataReader as fdr
+                kosdaq_df = fdr.StockListing("KOSDAQ")
+                if "Code" in kosdaq_df.columns and code in kosdaq_df["Code"].values:
                      suffix = ".KQ"
                      m_name = "KOSDAQ"
                 else:
@@ -292,38 +214,22 @@ def fetch_krx_data(code, s_str, e_str, interval, extra_data):
                 if df.index.tzinfo is not None:
                     df.index = df.index.tz_convert('Asia/Seoul').tz_localize(None)
         else:
-            # For Daily/Historical PyKRX data, ensure end date incorporates the true current day
-            safe_e_str = datetime.today().strftime("%Y%m%d")
+            # Standard Daily/Historical Fetch handling by FinanceDataReader
+            safe_e_str = datetime.today().strftime("%Y-%m-%d")
+            start_fdr_str = f"{s_str[:4]}-{s_str[4:6]}-{s_str[6:]}"
+            
+            import FinanceDataReader as fdr
             if interval in ["일/주/월/연봉 종합분석", "연봉 (Yearly)"]:
                 # Fetch Max for All View (from 1990-01-01)
-                df = stock.get_market_ohlcv_by_date("19900101", safe_e_str, code, "d")
+                df = fdr.DataReader(code, "1990-01-01", safe_e_str)
             else:
                 # Standard KRX Fetch
-                df = stock.get_market_ohlcv_by_date(s_str, safe_e_str, code, "d")
+                df = fdr.DataReader(code, start_fdr_str, safe_e_str)
             
             # --- Additional Data Fetching ---
-            if not df.empty:
-                 safe_end_d = datetime.today()
-                 # 1. Fundamental
-                 if "펀더멘털 (Fundamental)" in extra_data:
-                     df_fund = fetch_krx_chunked(stock.get_market_fundamental_by_date, start_d, safe_end_d, code, freq="d")
-                     if not df_fund.empty:
-                         cols_to_use = df_fund.columns.difference(df.columns)
-                         df = pd.merge(df, df_fund[cols_to_use], left_index=True, right_index=True, how='left')
-    
-                 # 2. Market Cap
-                 if "시가총액 (Market Cap)" in extra_data:
-                     df_cap = fetch_krx_chunked(stock.get_market_cap_by_date, start_d, safe_end_d, code, freq="d")
-                     if not df_cap.empty:
-                         cols_to_use = df_cap.columns.difference(df.columns)
-                         df = pd.merge(df, df_cap[cols_to_use], left_index=True, right_index=True, how='left')
-    
-                 # 3. Investor (Trading Value)
-                 if "수급 (Investor)" in extra_data:
-                     df_inv = fetch_krx_chunked(stock.get_market_trading_value_by_date, start_d, safe_end_d, code)
-                     if not df_inv.empty:
-                         cols_to_use = df_inv.columns.difference(df.columns)
-                         df = pd.merge(df, df_inv[cols_to_use], left_index=True, right_index=True, how='left')
+            # NOTE: pykrx has been replaced. FinanceDataReader does not provide daily 
+            # fundamental, market cap, and investor turnover natively.
+            # We skip adding these extra features for now to ensure stability.
 
         
         if not df.empty:
@@ -339,13 +245,12 @@ def fetch_krx_data(code, s_str, e_str, interval, extra_data):
             if interval in ["일/주/월/연봉 종합분석", "일봉 (Daily)"]:
                 df = append_live_minute_data(df, code, m_name)
             
-            # Determine Market Name (logic repeated/consolidated)
-            # If yfinance branch, m_name was set. If pykrx, we check here.
-            # Ideally we check once. 
+            # Determine Market Name
             if m_name == "KRX": # Default or not set by YF branch
                 try:
-                    kospi_tickers = stock.get_market_ticker_list(market="KOSPI")
-                    if code in kospi_tickers:
+                    import FinanceDataReader as fdr
+                    kospi_df = fdr.StockListing("KOSPI")
+                    if "Code" in kospi_df.columns and code in kospi_df["Code"].values:
                         m_name = "KOSPI"
                     else:
                         m_name = "KOSDAQ"
@@ -1135,35 +1040,30 @@ with tab_kr:
         df_subset = df_subset.copy()
 
         # Map Ticker to Name with Naver Finance Link
-        # Append name as a query parameter so we can easily regex it in LinkColumn
         df_subset['종목명'] = [f"https://finance.naver.com/item/fchart.naver?code={t}&name={ticker_map.get(t, t)}" for t in df_subset.index]
 
         high_prices = []
         breakouts = []
 
         start_date_52 = datetime.strptime(base_date_str, "%Y%m%d") - timedelta(days=365)
-        start_str_52 = start_date_52.strftime("%Y%m%d")
+        start_str_52 = start_date_52.strftime("%Y-%m-%d")
 
+        import FinanceDataReader as fdr
         for ticker in df_subset.index:
             try:
-                # Get current close
                 curr_close = df_subset.loc[ticker, '종가']
-
                 # Get 1 year history
-                df_high = stock.get_market_ohlcv_by_date(start_str_52, base_date_str, ticker)
+                df_high = fdr.DataReader(ticker, start_str_52, base_date_str)
 
-                if not df_high.empty and '고가' in df_high.columns:
-                    # 52-Week High (Display Value - Includes Today)
-                    display_high = df_high['고가'].max()
+                if not df_high.empty and 'High' in df_high.columns:
+                    display_high = df_high['High'].max()
                     high_prices.append(display_high)
 
-                    # Previous 52-Week High (Excludes Today) for Breakout Check
                     if len(df_high) > 1:
-                        prev_high = df_high['고가'].iloc[:-1].max()
+                        prev_high = df_high['High'].iloc[:-1].max()
                     else:
                         prev_high = 0
 
-                    # Check breakout (Close >= Previous High)
                     if prev_high > 0 and curr_close >= prev_high:
                          breakouts.append(True)
                     else:
@@ -1179,211 +1079,34 @@ with tab_kr:
         df_subset['is_breakout'] = breakouts
         return df_subset
 
-    @st.cache_data(show_spinner="랭킹 차트 로딩 중...", ttl=300)
-    def render_horizontal_candles(df, ticker_map, target_date_str, max_pct=30.0):
-        html = '<div style="font-family: sans-serif; font-size: 14px; margin-top: 10px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 30px;">'
-        for ticker in df.index:
-            try:
-                name = ticker_map.get(ticker, str(ticker))
-                close_p = float(df.loc[ticker, '종가'])
-                open_p = float(df.loc[ticker, '시가'])
-                high_p = float(df.loc[ticker, '고가'])
-                low_p = float(df.loc[ticker, '저가'])
-                change_pct = float(df.loc[ticker, '등락률'])
-
-                if change_pct > -100:
-                    prev_close = close_p / (1 + change_pct / 100.0)
-                else:
-                    prev_close = close_p
-
-                if prev_close <= 0: continue
-
-                o_pct = (open_p - prev_close) / prev_close * 100
-                h_pct = (high_p - prev_close) / prev_close * 100
-                l_pct = (low_p - prev_close) / prev_close * 100
-                c_pct = change_pct
-
-                def cap(p): return max(-max_pct, min(max_pct, p))
-                o_cap_val, h_cap_val, l_cap_val, c_cap_val = cap(o_pct), cap(h_pct), cap(l_pct), cap(c_pct)
-
-                def get_x(p): return (p + max_pct) / (max_pct * 2) * 100
-                x_o, x_h, x_l, x_c = get_x(o_cap_val), get_x(h_cap_val), get_x(l_cap_val), get_x(c_cap_val)
-
-                body_left = min(x_o, x_c)
-                body_width = max(0.5, abs(x_o - x_c))
-
-                color = "#D32F2F" if c_pct >= 0 else "#1976D2"
-
-                # --- Investor Volume Logic ---
-                retail_val = 0
-                foreign_val = 0
-                inst_val = 0
-                other_val = 0
-
-                try:
-                    df_inv = stock.get_market_trading_volume_by_date(target_date_str, target_date_str, ticker)
-                    if not df_inv.empty:
-                        if '개인' in df_inv.columns: retail_val = int(df_inv['개인'].iloc[0])
-                        if '외국인합계' in df_inv.columns: foreign_val = int(df_inv['외국인합계'].iloc[0])
-                        if '기관합계' in df_inv.columns: inst_val = int(df_inv['기관합계'].iloc[0])
-                        if '기타법인' in df_inv.columns: other_val = int(df_inv['기타법인'].iloc[0])
-                except Exception:
-                    pass
-
-                # Calculate total positive and negative volumes among the 4 targeted groups
-                pos_sum = sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v > 0)
-                neg_sum = abs(sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v < 0))
-
-                # Use the maximum of positive or negative absolute sums as the 100% baseline to strictly enforce zero-sum visually
-                baseline = max(pos_sum, neg_sum)
-                if baseline <= 0: baseline = 1 # prevent div by zero
-
-                def make_row(label, val):
-                    v_pct = (val / baseline) * 100 if baseline > 0 else 0
-                    row_color = '#D32F2F' if val > 0 else '#1976D2' if val < 0 else '#495057'
-                    s = '+' if val > 0 else ''
-                    bw = min(abs(v_pct) / 2, 50)
-                    lm = 50 if val > 0 else 50 - bw
-
-                    return f'''
-                    <div style="display: flex; align-items: center; justify-content: space-between; height: 32px; margin-bottom: 5px;">
-                      <div style="width: 45px; text-align: left; color: #495057; font-weight: bold; font-size: 11px;">{label}</div>
-                      <div style="flex: 1; position: relative; height: 16px; margin: 0 5px; display: flex; align-items: center;">
-                         <div style="position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; z-index: 1;"></div>
-                         <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #000; z-index: 3;"></div>
-                         <div style="position: absolute; left: {lm}%; width: {bw}%; height: 12px; top: 2px; background: {row_color}; z-index: 2;"></div>
-                      </div>
-                      <div style="width: 55px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2px;">
-                         <div style="font-size: 9px; color: #adb5bd; line-height: 1.2; margin-bottom: 2px;">{val:,.0f}</div>
-                         <div style="color: {row_color}; font-weight: bold; font-size: 11px; line-height: 1.2;">{s}{v_pct:.0f}%</div>
-                      </div>
-                    </div>
-                    '''
-
-                investor_rows = make_row('개인', retail_val) + make_row('외국인', foreign_val) + make_row('기관', inst_val) + make_row('기타', other_val)
-            # -----------------------------
-
-                html += f"""
-<div style="margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px 15px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); display: flex; flex-wrap: nowrap; align-items: stretch; gap: 15px;">
-  <div style="flex: 1 1 120px; min-width: 0;">
-    <div style="margin-bottom: 25px; font-weight: bold; font-size: 15px;">
-        {name} <span style="font-size: 13px; color: gray; font-weight: normal;">({close_p:,.0f}원, <span style="color: {color};">{c_pct:+.2f}%</span>)</span>
-    </div>
-    <div style="position: relative; width: 100%; height: 40px; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e9ecef; margin-bottom: 20px;">
-      <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background-color: #adb5bd; z-index: 1;"></div>
-
-      <div style="position: absolute; left: {x_l}%; width: {x_h - x_l}%; top: 19px; height: 2px; background-color: #495057; z-index: 2;"></div>
-
-      <div style="position: absolute; left: {body_left}%; width: {body_width}%; top: 8px; height: 24px; background-color: {color}; border-radius: 2px; z-index: 3;"></div>
-
-      <div style="position: absolute; left: {x_o}%; top: 0; height: 40px; border-left: 2px dashed #343a40; z-index: 4;"></div>
-      <div style="position: absolute; left: {x_o}%; top: -19px; font-size: 11px; color: #495057; transform: translateX(-50%); white-space: nowrap;">시 {open_p:,.0f}</div>
-
-      <div style="position: absolute; left: {x_c}%; top: 0; height: 40px; border-left: 2px solid #212529; z-index: 5;"></div>
-      <div style="position: absolute; left: {x_c}%; top: 43px; font-size: 12px; font-weight: bold; color: {color}; transform: translateX(-50%); white-space: nowrap;">종 {close_p:,.0f}</div>
-
-      <div style="position: absolute; left: {x_l}%; top: 62px; font-size: 11px; color: #6c757d; transform: translateX(-100%); padding-right: 6px; text-align: right; line-height: 1.2; white-space: nowrap;">저 {low_p:,.0f}<br>({l_pct:+.1f}%)</div>
-      <div style="position: absolute; left: {x_h}%; top: 62px; font-size: 11px; color: #6c757d; transform: translateX({'-100%' if x_h > 80 else '0'}); padding-left: {0 if x_h > 80 else 6}px; padding-right: {6 if x_h > 80 else 0}px; text-align: {'right' if x_h > 80 else 'left'}; line-height: 1.2; white-space: nowrap;">고 {high_p:,.0f}<br>({h_pct:+.1f}%)</div>
-    </div>
-  </div>
-  <div style="flex: 0 0 165px; display: flex; flex-direction: column; justify-content: center; font-size: 13px; margin-top: 5px; min-width: 0;">
-    {investor_rows}
-  </div>
-</div>"""
-            except Exception as e:
-                import traceback
-                st.error(f"Candle render error for {ticker}: {e}\n{traceback.format_exc()}")
-        html += '</div>'
-        return html
-
-    display_cols = ['종목명', '종가', '시가', '고가', '저가', '52주최고', '등락률', '거래량', '거래대금', 'is_breakout']
-    visible_cols = [c for c in display_cols if c != 'is_breakout']
-
-    # Column Config
-    column_config = {
-        "종목명": st.column_config.LinkColumn("종목명", display_text=r"name=([^&]+)", help="클릭 시 네이버페이 증권 차트로 이동합니다. 배경색 있는 종목은 52주 신고가(Highlighted: 52-Week High)"),
-        "등락률": st.column_config.TextColumn("등락률"),
-        "is_breakout": st.column_config.CheckboxColumn("전고점 돌파", default=False)
-    }
-
     @st.cache_data(ttl=60)
-    def get_krx_data_cached(d_str):
-        # stock.get_market_ohlcv의 휴장일 버그(KeyError)를 피하기 위해 가장 Low-level API 직접 호출
+    def get_krx_data_cached():
+        # Fetch directly using FinanceDataReader StockListing for current day rankings
+        import FinanceDataReader as fdr
         df = pd.DataFrame()
         try:
-            from pykrx.website import krx
-            df = krx.get_market_ohlcv_by_ticker(d_str, "ALL")
+            df = fdr.StockListing('KRX')
         except Exception:
             pass
             
-        if df is None or df.empty:
-            # krx.get_market_ohlcv_by_ticker("ALL") 이 동작하지 않을 때 pykrx 주식 모듈로 대체
-            try:
-                from pykrx import stock
-                df1 = stock.get_market_ohlcv(d_str, market="KOSPI")
-                df2 = stock.get_market_ohlcv(d_str, market="KOSDAQ")
-                
-                frames = []
-                if df1 is not None and not df1.empty: frames.append(df1)
-                if df2 is not None and not df2.empty: frames.append(df2)
-                
-                if frames:
-                    df = pd.concat(frames)
-            except Exception:
-                pass
-                
-        if df is not None and not df.empty:
-            # 영어 컬럼 → 한국어로 변환
+        if not df.empty and 'Code' in df.columns:
+            df = df.set_index('Code')
             rename_dict = {
                 'Open': '시가', 'High': '고가', 'Low': '저가', 'Close': '종가',
-                'Volume': '거래량', 'Value': '거래대금',
-                'Fluctuation': '등락률', 'ChangeRate': '등락률',
-                'Market Cap': '시가총액', 'MarketCap': '시가총액'
+                'Volume': '거래량', 'Amount': '거래대금',
+                'ChagesRatio': '등락률', 'Marcap': '시가총액'
             }
             df = df.rename(columns=rename_dict)
-            
-            # 자체 휴장일 체크
-            req_cols = ['시가', '고가', '저가', '종가']
-            if all(c in df.columns for c in req_cols):
-                try:
-                    if (df[req_cols] == 0).all(axis=None):
-                        return pd.DataFrame()
-                except Exception:
-                    pass
             return df
         return pd.DataFrame()
 
     try:
-        # 만약 기존에 캐시된 데이터가 모두 0(휴장일 데이터)이라면 세션에서 삭제하여 다시 불러오도록 함
-        if 'krx_market_df' in st.session_state:
-            cached_df = st.session_state['krx_market_df']
-            vol_c = '거래량' if '거래량' in cached_df.columns else 'Volume'
-            if not cached_df.empty and vol_c in cached_df.columns and cached_df[vol_c].sum() == 0:
-                del st.session_state['krx_market_df']
-
         if 'krx_market_df' not in st.session_state:
             with st.spinner("KRX 전체 시세 데이터 로딩 중..."):
-                top_df = pd.DataFrame()
+                top_df = get_krx_data_cached()
                 
-                # datetime.today() 대신 KST 기준 함수 사용
                 check_date = today_kst()
                 recent_valid_d_str = check_date.strftime("%Y%m%d")
-
-                # 최대 14일 전까지 거슬러 올라가며 최근 거래일 탐색 (긴 연휴/주말 연속 대응)
-                for _ in range(14):
-                    d_str = check_date.strftime("%Y%m%d")
-                    temp_df = get_krx_data_cached(d_str)
-
-                    if not temp_df.empty:
-                        # pykrx는 공휴일에도 DataFrame을 반환할 수 있으나 유효한 컬럼이 있는지 확인
-                        required_cols = ['시가', '고가', '저가', '종가', '거래량']
-                        if all(c in temp_df.columns for c in required_cols):
-                            if temp_df['거래량'].sum() > 0:
-                                recent_valid_d_str = d_str
-                                top_df = temp_df
-                                break
-
-                    check_date -= timedelta(days=1)
 
                 st.session_state['krx_market_df'] = top_df
                 st.session_state['krx_today_str'] = recent_valid_d_str
@@ -1396,65 +1119,38 @@ with tab_kr:
         def render_krx_ranking(top_df, today_str, krx_time_str, ticker_to_name, numeric_cols, display_cols):
             # Sort by Volume (거래량) descending
             if not top_df.empty:
-                vol_col = '거래량' if '거래량' in top_df.columns else 'Volume'
-
+                vol_col = '거래량'
                 top_10 = top_df.sort_values(by=vol_col, ascending=False).head(10)
                 top_10 = process_top_10(top_10, ticker_to_name, today_str)
 
-                # Format Numeric Columns (Strings for display)
                 top_10_disp = top_10.copy()
-
                 for col in numeric_cols:
                     if col in top_10_disp.columns:
                         top_10_disp[col] = top_10_disp[col].apply(lambda x: f'{x:,.0f}')
 
-                # Create Styler
                 avail_cols = [c for c in display_cols if c in top_10_disp.columns]
                 styler = top_10_disp[avail_cols].style
 
-                # Formatting (Arrows & Colors)
                 if '등락률' in avail_cols:
                      styler = styler.format({'등락률': add_arrow})
                      styler = styler.map(format_price_change, subset=['등락률'])
 
-                # Name Coloring & Breakout Highlight
                 styler = styler.apply(color_name, axis=1)
-
-                use_candle_vol = st.toggle("📊 거래량 탑 10: 가로 캔들 차트로 보기", key="toggle_kr_vol")
-                
-                # Background preloading
-                if not use_candle_vol:
-                    def preload_vol_candles():
-                        try:
-                            render_horizontal_candles(top_10, ticker_to_name, today_str, max_pct=30.0)
-                        except Exception:
-                            pass
-                    t1 = threading.Thread(target=preload_vol_candles)
-                    add_script_run_ctx(t1)
-                    t1.start()
-
-                if use_candle_vol:
-                    html_vol = render_horizontal_candles(top_10, ticker_to_name, today_str, max_pct=30.0)
-                    components.html(html_vol, height=900, scrolling=True)
-                else:
-                    st.dataframe(styler, column_config=column_config)
-
+                st.dataframe(styler, column_config=column_config)
 
                 # --- Top 10 Trading Value (거래대금) ---
                 st.subheader(f"💰 오늘의 거래대금 TOP 10 ({krx_time_str})")
-                val_col = '거래대금' if '거래대금' in top_df.columns else 'Value'
+                val_col = '거래대금'
 
                 if val_col in top_df.columns:
                     top_10_val = top_df.sort_values(by=val_col, ascending=False).head(10)
                     top_10_val = process_top_10(top_10_val, ticker_to_name, today_str)
 
-                    # Format Numeric
                     top_10_val_disp = top_10_val.copy()
                     for col in numeric_cols:
                         if col in top_10_val_disp.columns:
                             top_10_val_disp[col] = top_10_val_disp[col].apply(lambda x: f'{x:,.0f}')
 
-                    # Create Styler
                     avail_cols_val = [c for c in display_cols if c in top_10_val_disp.columns]
                     styler_val = top_10_val_disp[avail_cols_val].style
 
@@ -1462,31 +1158,10 @@ with tab_kr:
                          styler_val = styler_val.format({'등락률': add_arrow})
                          styler_val = styler_val.map(format_price_change, subset=['등락률'])
 
-                    # Apply Name Coloring & Breakout
                     styler_val = styler_val.apply(color_name, axis=1)
-
-                    use_candle_val = st.toggle("📊 거래대금 탑 10: 가로 캔들 차트로 보기", key="toggle_kr_val")
-
-                    # Background preloading
-                    if not use_candle_val:
-                        def preload_val_candles():
-                            try:
-                                render_horizontal_candles(top_10_val, ticker_to_name, today_str, max_pct=30.0)
-                            except Exception:
-                                pass
-                        t2 = threading.Thread(target=preload_val_candles)
-                        add_script_run_ctx(t2)
-                        t2.start()
-
-                    if use_candle_val:
-                        html_val = render_horizontal_candles(top_10_val, ticker_to_name, today_str, max_pct=30.0)
-                        components.html(html_val, height=900, scrolling=True)
-                    else:
-                        st.dataframe(styler_val, column_config=column_config)
-
+                    st.dataframe(styler_val, column_config=column_config)
                 else:
                     st.warning("'거래대금' 데이터를 찾을 수 없습니다.")
-
             else:
                 st.info("장 시작 전이거나 휴장일입니다. (No Data for Ranking)")
 

@@ -5,7 +5,6 @@ numpy
 plotly
 requests
 setuptools
-pykrx==1.0.47
 google-generativeai
 lxml
 openpyxl
