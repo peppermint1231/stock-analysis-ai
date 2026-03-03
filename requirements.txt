@@ -11,4 +11,5 @@ beautifulsoup4
 streamlit-autorefresh
 streamlit-local-storage
 finance-datareader
+setuptools
 pykrx
