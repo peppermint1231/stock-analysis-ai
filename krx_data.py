@@ -16,6 +16,20 @@ import pandas as pd
 import requests
 import streamlit as st
 
+# ─── pkg_resources shim (Streamlit Cloud uv 환경 버그 우회용) ──────────────────
+# pykrx 1.2.x 에서는 여전히 __init__.py 에서 pkg_resources를 import 합니다.
+# Streamlit Cloud 최신 환경에서는 setuptools가 명시적이어도 import가 꼬이는 경우가 있어
+# pykrx가 사용하는 최소한의 dummy 함수만 있는 가짜 모듈을 sys.modules에 주입합니다.
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    import sys
+    import types
+    _pkg = types.ModuleType("pkg_resources")
+    _pkg.resource_filename = lambda *a, **kw: ""  # type: ignore[assignment]
+    _pkg.resource_string = lambda *a, **kw: b""  # type: ignore[assignment]
+    _pkg.get_distribution = lambda name: type("Dist", (), {"version": "0.0.0"})()  # type: ignore[assignment]
+    sys.modules["pkg_resources"] = _pkg
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 _KRX_CACHE_FILE = "krx_mapping_cache.json"
