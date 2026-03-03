@@ -265,6 +265,7 @@ def get_krx_ranking() -> pd.DataFrame:
         return _get_krx_ranking_fdr_fallback()
 
     check_date = datetime.today()
+    errors: list[str] = []
     for _ in range(10):
         d_str = check_date.strftime("%Y%m%d")
         try:
@@ -272,11 +273,17 @@ def get_krx_ranking() -> pd.DataFrame:
                 df = pykrx_stock.get_market_ohlcv(d_str, market="ALL")
 
             if df.empty:
+                errors.append(f"{d_str}: 빈 DataFrame 반환")
                 check_date -= timedelta(days=1)
                 continue
 
             vol_col = "거래량" if "거래량" in df.columns else "Volume"
-            if vol_col not in df.columns or df[vol_col].sum() == 0:
+            if vol_col not in df.columns:
+                errors.append(f"{d_str}: 거래량 컬럼 없음 (컬럼: {list(df.columns)})")
+                check_date -= timedelta(days=1)
+                continue
+            if df[vol_col].sum() == 0:
+                errors.append(f"{d_str}: 거래량 합계 0 (장전/휴장)")
                 check_date -= timedelta(days=1)
                 continue
 
@@ -293,9 +300,11 @@ def get_krx_ranking() -> pd.DataFrame:
 
             return df
 
-        except Exception:
+        except Exception as exc:
+            errors.append(f"{d_str}: 예외 발생 — {exc}")
             check_date -= timedelta(days=1)
 
+    st.warning("⚠️ pykrx 랭킹 조회 실패 (최근 10일):\n" + "\n".join(f"- {e}" for e in errors))
     return pd.DataFrame()
 
 
