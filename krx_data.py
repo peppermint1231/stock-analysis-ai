@@ -258,40 +258,62 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (pykrx — 전 종목 1회 조회) ────────────────────────────────
-# pykrx.stock.get_market_ohlcv_by_ticker()는 KRX 공식 API를 사용하며
-# 단 2번의 호출(KOSPI + KOSDAQ)로 전 종목 OHLCV를 한 번에 반환합니다.
+# ─── KRX Rankings (FDR 전 종목 병렬 조회 방식) ────────────────────────────────
+
+def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
+    """단일 종목의 특정 날짜 OHLCV를 FDR DataReader로 가져옵니다."""
+    import FinanceDataReader as fdr
+
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            df = fdr.DataReader(code, date_str, date_str)
+        if df.empty:
+            return code, None
+        row = df.iloc[-1].rename({
+            "Open": "시가", "High": "고가", "Low": "저가",
+            "Close": "종가", "Volume": "거래량",
+        }).to_dict()
+        if row.get("거래량", 0) == 0:
+            return code, None
+        row["_code"] = code
+        return code, row
+    except Exception:
+        return code, None
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
-    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 pykrx로 조회해 거래량 기준 반환합니다.
+    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 FDR로 병렬 fetch해 거래량 기준 반환합니다.
 
-    반환 DataFrame: 인덱스=종목코드(6자리), 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
-    최근 5 거래일을 역순으로 시도해 거래량이 있는 날의 데이터를 반환합니다.
+    Streamlit Cloud에서의 StockListing 파싱 실패를 우회하기 위해,
+    이미 안정성이 검증된 `get_krx_mapping`의 키(종목코드) 목록을 재활용합니다.
     """
-    from pykrx import stock as pykrx_stock
+    mapping = get_krx_mapping()
+    if not mapping:
+        st.warning("⚠️ 종목 마스터(get_krx_mapping)에서 코드를 가져올 수 없어 랭킹을 표시할 수 없습니다.")
+        return pd.DataFrame()
 
+    codes = list(mapping.keys())
+
+    # 최근 5 거래일 역순 시도
     for delta in range(5):
         check_date = datetime.today() - timedelta(days=delta)
-        date_str = check_date.strftime("%Y%m%d")
+        date_str = check_date.strftime("%Y-%m-%d")
 
-        frames: list[pd.DataFrame] = []
-        for market in ("KOSPI", "KOSDAQ"):
-            try:
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                    df_m = pykrx_stock.get_market_ohlcv_by_ticker(date_str, market=market)
-                if df_m is not None and not df_m.empty:
-                    frames.append(df_m)
-            except Exception:
-                continue
+        rows: list[dict] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
+            futs = {ex.submit(_fetch_one_stock_ohlcv, code, date_str): code for code in codes}
+            for fut in concurrent.futures.as_completed(futs, timeout=90):
+                _, row = fut.result()
+                if row is not None:
+                    rows.append(row)
 
-        if not frames:
+        if not rows:
             continue
 
-        df = pd.concat(frames)
+        df = pd.DataFrame(rows)
 
-        # 컬럼 정규화 (pykrx는 이미 한글 컬럼: 시가/고가/저가/종가/거래량/거래대금/등락률)
+        # 숫자형 변환 및 거래량 필터
         for col in ("시가", "고가", "저가", "종가", "거래량"):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -302,17 +324,19 @@ def get_krx_ranking() -> pd.DataFrame:
         if df.empty:
             continue
 
-        # 등락률이 없으면 시가→종가 근사
+        # 등락률 및 거래대금 계산
         if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
             s = df["시가"].replace(0, float("nan"))
             df["등락률"] = ((df["종가"] - s) / s * 100).round(2)
 
-        # 거래대금이 없으면 계산
         if "거래대금" not in df.columns and "종가" in df.columns and "거래량" in df.columns:
             df["거래대금"] = df["종가"] * df["거래량"]
 
         if "종가" in df.columns:
             df["현재가"] = df["종가"]
+
+        if "_code" in df.columns:
+            df = df.set_index("_code")
 
         return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
 
