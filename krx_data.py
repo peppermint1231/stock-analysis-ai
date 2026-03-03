@@ -18,15 +18,34 @@ import streamlit as st
 import yfinance as yf
 
 # ─── pkg_resources shim ──────────────────────────────────────────────────────
-# pykrx 1.0.51 uses pkg_resources at import time.
-# In uv/venv environments, pkg_resources can be missing even with setuptools.
-# We inject a minimal shim covering every attribute pykrx actually uses.
+# pykrx 1.0.51 uses pkg_resources at import time (get_distribution, resource_filename).
+# In uv/venv environments, pkg_resources may be missing OR present-but-incomplete.
+# We inject/patch a minimal shim covering every attribute pykrx actually uses.
+def _make_resource_filename():
+    import importlib.util as _ilu
+    import os as _os
+
+    def _resource_filename(package_or_req: str, resource_name: str) -> str:
+        try:
+            spec = _ilu.find_spec(package_or_req)
+            if spec and spec.origin:
+                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
+        except Exception:
+            pass
+        return resource_name
+
+    return _resource_filename
+
+
 try:
     import pkg_resources  # noqa: F401
+    # Even if import succeeds, the installed version may be incomplete.
+    if not hasattr(pkg_resources, "resource_filename"):
+        pkg_resources.resource_filename = _make_resource_filename()  # type: ignore[attr-defined]
+    if not hasattr(pkg_resources, "resource_string"):
+        pkg_resources.resource_string = lambda *a, **kw: b""  # type: ignore[attr-defined]
 except ImportError:
-    import importlib.metadata
-    import importlib.util
-    import os as _os
+    import importlib.metadata as _ilm
     import types as _types
 
     _pkg = _types.ModuleType("pkg_resources")
@@ -34,31 +53,22 @@ except ImportError:
     class _Dist:
         def __init__(self, name: str) -> None:
             try:
-                self.version = importlib.metadata.version(name)
-            except importlib.metadata.PackageNotFoundError:
+                self.version = _ilm.version(name)
+            except _ilm.PackageNotFoundError:
                 self.version = "0.0.0"
         def __str__(self) -> str:
             return self.version
 
-    def _resource_filename(package_or_req: str, resource_name: str) -> str:
-        """Return the true filesystem path of a resource file inside a package."""
-        try:
-            spec = importlib.util.find_spec(package_or_req)
-            if spec and spec.origin:
-                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
-        except Exception:
-            pass
-        return resource_name
-
     _pkg.get_distribution = lambda name: _Dist(name)  # type: ignore[assignment]
     _pkg.require = lambda *a, **kw: []  # type: ignore[assignment]
-    _pkg.resource_filename = _resource_filename  # type: ignore[assignment]
+    _pkg.resource_filename = _make_resource_filename()  # type: ignore[assignment]
     _pkg.resource_string = lambda *a, **kw: b""  # type: ignore[assignment]
     _pkg.resource_listdir = lambda *a, **kw: []  # type: ignore[assignment]
     _pkg.resource_exists = lambda *a, **kw: False  # type: ignore[assignment]
     _pkg.DistributionNotFound = Exception  # type: ignore[assignment]
     _pkg.VersionConflict = Exception  # type: ignore[assignment]
     sys.modules["pkg_resources"] = _pkg
+
 
 
 
