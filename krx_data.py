@@ -304,9 +304,12 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 _KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
 _KRX_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Referer":    "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
+    # Content-Type은 requests가 POST data= 에서 자동 설정 — 중복 설정하면 충돌
 }
 _KRX_COL_MAP = {
     "ISU_SRT_CD": "_ticker", "ISU_ABBRV": "종목명_raw",
@@ -315,17 +318,14 @@ _KRX_COL_MAP = {
     "ACC_TRDVOL": "거래량",  "ACC_TRDVAL": "거래대금",
     "FLUC_RT":    "등락률",
 }
-# KRX JSON 응답에서 데이터 리스트를 찾아내기 위해 시도할 키 이름들
 _KRX_OUTPUT_KEYS = ("output", "OutBlock_1", "output1", "data", "result")
 
 
 def _parse_krx_rows(json_data: dict) -> list:
-    """KRX API JSON 응답에서 데이터 행 리스트를 추출합니다."""
     for key in _KRX_OUTPUT_KEYS:
         rows = json_data.get(key)
         if rows:
             return rows
-    # 값이 list인 첫 번째 키 찾기 (키 이름이 뭔지 몰라도 처리)
     for val in json_data.values():
         if isinstance(val, list) and val:
             return val
@@ -333,39 +333,35 @@ def _parse_krx_rows(json_data: dict) -> list:
 
 
 def _fetch_krx_market(date_str: str) -> tuple[pd.DataFrame, str]:
-    """KRX data API로 전 종목 OHLCV를 fetch. 성공 시 (df, "krx"), 실패 시 (empty, reason)."""
+    """KRX data API로 전 종목 OHLCV를 fetch."""
     sess = requests.Session()
     sess.headers.update(_KRX_HEADERS)
-    try:
-        sess.get("http://data.krx.co.kr/", timeout=8)
-    except Exception:
-        pass
 
     all_rows: list[dict] = []
-    debug_keys: list[str] = []
+    debug_info: list[str] = []
 
     for mkt in ("STK", "KSQ", "KNX"):
+        # 최소 파라미터만 사용 (extra params might cause 400)
         payload = {
-            "bld":         "dbms/MDC/STAT/standard/MDCSTAT02501",
-            "locale":      "ko_KR",
-            "mktId":       mkt,
-            "trdDd":       date_str,
-            "share":       "1",
-            "money":       "1",
-            "csvxls_isNo": "false",
+            "bld":    "dbms/MDC/STAT/standard/MDCSTAT02501",
+            "locale": "ko_KR",
+            "mktId":  mkt,
+            "trdDd":  date_str,
         }
         try:
             resp = sess.post(_KRX_API_URL, data=payload, timeout=15)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                debug_info.append(f"{mkt}:HTTP{resp.status_code} body={resp.text[:200]}")
+                continue
             data = resp.json()
-            debug_keys.append(f"{mkt}:{list(data.keys())[:4]}")
+            debug_info.append(f"{mkt}:keys={list(data.keys())[:5]}")
             rows = _parse_krx_rows(data)
             all_rows.extend(rows)
         except Exception as exc:
-            debug_keys.append(f"{mkt}:err({exc})")
+            debug_info.append(f"{mkt}:err={exc}")
 
     if not all_rows:
-        return pd.DataFrame(), f"빈 응답 (JSON keys: {debug_keys})"
+        return pd.DataFrame(), f"KRX API 응답 없음 ({'; '.join(debug_info)})"
 
     df = pd.DataFrame(all_rows).rename(columns=_KRX_COL_MAP)
     num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
@@ -377,6 +373,7 @@ def _fetch_krx_market(date_str: str) -> tuple[pd.DataFrame, str]:
     if "종가" in df.columns:
         df["현재가"] = df["종가"]
     return df, "krx"
+
 
 
 def _fdr_today_ohlcv(code: str) -> tuple[str, pd.DataFrame]:
