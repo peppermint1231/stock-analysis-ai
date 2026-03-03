@@ -298,116 +298,62 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (FDR 전 종목 배치 조회) ────────────────────────────────────
-# FDR StockListing으로 KOSPI+KOSDAQ 전 종목 코드를 가져온 뒤,
-# 각 종목의 당일 OHLCV를 병렬로 fetch해 거래량 기준 랭킹을 반환합니다.
+# ─── KRX Rankings (pykrx — 전 종목 1회 조회) ────────────────────────────────
+# pykrx.stock.get_market_ohlcv_by_ticker()는 KRX 공식 API를 사용하며
+# 단 2번의 호출(KOSPI + KOSDAQ)로 전 종목 OHLCV를 한 번에 반환합니다.
 
 
-
-def _get_all_stock_codes() -> list[str]:
-    """KOSPI+KOSDAQ 전 종목 코드를 FDR StockListing으로 반환합니다."""
-    import FinanceDataReader as fdr
-
-    codes: list[str] = []
-    errors: list[str] = []
-    for market in ("KOSPI", "KOSDAQ"):
-        try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                listing = fdr.StockListing(market)
-            code_col = next((c for c in ("Code", "Symbol") if c in listing.columns), None)
-            if code_col:
-                codes.extend(listing[code_col].dropna().astype(str).tolist())
-                errors.append(f"{market}: {len(listing)}개 (code_col={code_col})")
-            else:
-                errors.append(f"{market}: code 컬럼 없음, 컬럼={list(listing.columns[:6])}")
-        except Exception as exc:
-            errors.append(f"{market}: 예외={exc}")
-    if not codes:
-        st.warning("⚠️ FDR StockListing 실패:\n" + "\n".join(f"- {e}" for e in errors))
-    return codes
-
-
-def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
-    """단일 종목의 특정 날짜 OHLCV를 FDR DataReader로 가져옵니다."""
-    import FinanceDataReader as fdr
-
-    try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            df = fdr.DataReader(code, date_str, date_str)
-        if df.empty:
-            return code, None
-        row = df.iloc[-1].rename({
-            "Open": "시가", "High": "고가", "Low": "저가",
-            "Close": "종가", "Volume": "거래량",
-        }).to_dict()
-        # 거래량이 0이면 장전/휴장 데이터
-        if row.get("거래량", 0) == 0:
-            return code, None
-        row["_code"] = code  # 인덱스 설정용
-        return code, row
-    except Exception:
-        return code, None
-
-
-@st.cache_data(ttl=600, show_spinner=False)  # 10분 캐시 — 전 종목 fetch는 비용이 크므로
+@st.cache_data(ttl=600, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
-    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 FDR로 병렬 fetch해 거래량 기준 반환합니다.
+    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 pykrx로 조회해 거래량 기준 반환합니다.
 
-    반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
+    반환 DataFrame: 인덱스=종목코드(6자리), 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
     최근 5 거래일을 역순으로 시도해 거래량이 있는 날의 데이터를 반환합니다.
     """
-    codes = _get_all_stock_codes()
-    if not codes:
-        st.warning("⚠️ FDR 종목 리스팅 실패 — 종목 코드를 가져올 수 없습니다.")
-        return pd.DataFrame()
+    from pykrx import stock as pykrx_stock
 
-    # 최근 5 거래일 역순으로 시도 (오늘 포함, 주말/공휴일 건너뜀)
     for delta in range(5):
         check_date = datetime.today() - timedelta(days=delta)
-        date_str = check_date.strftime("%Y-%m-%d")
+        date_str = check_date.strftime("%Y%m%d")
 
-        rows: list[dict] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
-            futs = {ex.submit(_fetch_one_stock_ohlcv, code, date_str): code for code in codes}
-            for fut in concurrent.futures.as_completed(futs, timeout=90):
-                _, row = fut.result()
-                if row is not None:
-                    rows.append(row)
+        frames: list[pd.DataFrame] = []
+        for market in ("KOSPI", "KOSDAQ"):
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    df_m = pykrx_stock.get_market_ohlcv_by_ticker(date_str, market=market)
+                if df_m is not None and not df_m.empty:
+                    frames.append(df_m)
+            except Exception:
+                continue
 
-        if not rows:
-            continue  # 당일 데이터 없음 → 하루 전으로
+        if not frames:
+            continue
 
-        df = pd.DataFrame(rows)
+        df = pd.concat(frames)
 
-        # 숫자형 변환
+        # 컬럼 정규화 (pykrx는 이미 한글 컬럼: 시가/고가/저가/종가/거래량/거래대금/등락률)
         for col in ("시가", "고가", "저가", "종가", "거래량"):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # 거래량 > 0인 행만 유지
         if "거래량" in df.columns:
             df = df[df["거래량"] > 0]
 
         if df.empty:
             continue
 
-        # 등락률 계산 (없으면 시가→종가 근사)
+        # 등락률이 없으면 시가→종가 근사
         if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
             s = df["시가"].replace(0, float("nan"))
             df["등락률"] = ((df["종가"] - s) / s * 100).round(2)
 
-        # 거래대금 = 종가 × 거래량
+        # 거래대금이 없으면 계산
         if "거래대금" not in df.columns and "종가" in df.columns and "거래량" in df.columns:
             df["거래대금"] = df["종가"] * df["거래량"]
 
         if "종가" in df.columns:
             df["현재가"] = df["종가"]
 
-        # 인덱스로 종목코드가 없으면 _code 행에서 꺼냄
-        if "_code" in df.columns:
-            df = df.set_index("_code")
-
         return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
 
-    # 5일 모두 데이터 없음
     return pd.DataFrame()
