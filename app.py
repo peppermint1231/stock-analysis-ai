@@ -569,10 +569,12 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
 @st.cache_data(ttl=3600, show_spinner="멀티 타임프레임 데이터 준비 중...")
 def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
     d_cutoff = df_daily.index.max() - timedelta(days=365)
-    df_d = calculate_indicators(df_daily.loc[d_cutoff:].sort_index())
+    # 지표를 원본 전체 데이터에 먼저 계산한 후, 필요한 기간(1년)만 잘라냅니다.
+    df_d = calculate_indicators(df_daily.sort_index()).loc[d_cutoff:]
 
     w_cutoff = df_daily.index.max() - timedelta(days=3650)
-    df_w = calculate_indicators(resample_ohlcv(df_daily, "W").loc[w_cutoff:])
+    # 주봉도 전체로 리샘플링 후 계산하고 10년치만 잘라냅니다.
+    df_w = calculate_indicators(resample_ohlcv(df_daily, "W")).loc[w_cutoff:]
     df_m = calculate_indicators(resample_ohlcv(df_daily, "ME"))
     df_y = calculate_indicators(resample_ohlcv(df_daily, "YE"))
 
