@@ -16,60 +16,6 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# ─── pkg_resources shim ──────────────────────────────────────────────────────
-# pykrx 1.0.51 uses pkg_resources at import time (get_distribution, resource_filename).
-# In uv/venv environments, pkg_resources may be missing OR present-but-incomplete.
-# We inject/patch a minimal shim covering every attribute pykrx actually uses.
-def _make_resource_filename():
-    import importlib.util as _ilu
-    import os as _os
-
-    def _resource_filename(package_or_req: str, resource_name: str) -> str:
-        try:
-            spec = _ilu.find_spec(package_or_req)
-            if spec and spec.origin:
-                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
-        except Exception:
-            pass
-        return resource_name
-
-    return _resource_filename
-
-
-try:
-    import pkg_resources  # noqa: F401
-    # Even if import succeeds, the installed version may be incomplete.
-    if not hasattr(pkg_resources, "resource_filename"):
-        pkg_resources.resource_filename = _make_resource_filename()  # type: ignore[attr-defined]
-    if not hasattr(pkg_resources, "resource_string"):
-        pkg_resources.resource_string = lambda *a, **kw: b""  # type: ignore[attr-defined]
-except ImportError:
-    import importlib.metadata as _ilm
-    import types as _types
-
-    _pkg = _types.ModuleType("pkg_resources")
-
-    class _Dist:
-        def __init__(self, name: str) -> None:
-            try:
-                self.version = _ilm.version(name)
-            except _ilm.PackageNotFoundError:
-                self.version = "0.0.0"
-        def __str__(self) -> str:
-            return self.version
-
-    _pkg.get_distribution = lambda name: _Dist(name)  # type: ignore[assignment]
-    _pkg.require = lambda *a, **kw: []  # type: ignore[assignment]
-    _pkg.resource_filename = _make_resource_filename()  # type: ignore[assignment]
-    _pkg.resource_string = lambda *a, **kw: b""  # type: ignore[assignment]
-    _pkg.resource_listdir = lambda *a, **kw: []  # type: ignore[assignment]
-    _pkg.resource_exists = lambda *a, **kw: False  # type: ignore[assignment]
-    _pkg.DistributionNotFound = Exception  # type: ignore[assignment]
-    _pkg.VersionConflict = Exception  # type: ignore[assignment]
-    sys.modules["pkg_resources"] = _pkg
-
-
-
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 _KRX_CACHE_FILE = "krx_mapping_cache.json"
@@ -312,8 +258,6 @@ def get_krx_ranking() -> pd.DataFrame:
     """
     from pykrx import stock as pykrx_stock
 
-    errs: list[str] = []
-
     for delta in range(5):
         check_date = datetime.today() - timedelta(days=delta)
         date_str = check_date.strftime("%Y%m%d")
@@ -325,10 +269,7 @@ def get_krx_ranking() -> pd.DataFrame:
                     df_m = pykrx_stock.get_market_ohlcv_by_ticker(date_str, market=market)
                 if df_m is not None and not df_m.empty:
                     frames.append(df_m)
-                else:
-                    errs.append(f"{date_str} {market}: 빈 DataFrame 반환")
-            except Exception as exc:
-                errs.append(f"{date_str} {market}: {type(exc).__name__}: {exc}")
+            except Exception:
                 continue
 
         if not frames:
@@ -345,7 +286,6 @@ def get_krx_ranking() -> pd.DataFrame:
             df = df[df["거래량"] > 0]
 
         if df.empty:
-            errs.append(f"{date_str}: 거래량>0 행 없음 (컬럼={list(df.columns)})")
             continue
 
         # 등락률이 없으면 시가→종가 근사
@@ -362,7 +302,4 @@ def get_krx_ranking() -> pd.DataFrame:
 
         return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
 
-    # 모두 실패 — 수집된 에러를 화면에 표시
-    if errs:
-        st.warning("⚠️ pykrx 랭킹 조회 실패:\n" + "\n".join(f"- {e}" for e in errs))
     return pd.DataFrame()
