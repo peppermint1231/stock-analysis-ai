@@ -299,108 +299,97 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (pykrx) ────────────────────────────────────────────────────
+# ─── KRX Rankings (직접 HTTP API) ────────────────────────────────────────────
+
+_KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+_KRX_API_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+}
+# KRX API 응답 필드명 → 표준 한글 컬럼명
+_KRX_COL_MAP = {
+    "ISU_SRT_CD": "_ticker",
+    "ISU_ABBRV":  "종목명_raw",
+    "TDD_OPNPRC": "시가",
+    "TDD_HGPRC":  "고가",
+    "TDD_LWPRC":  "저가",
+    "TDD_CLSPRC": "종가",
+    "ACC_TRDVOL": "거래량",
+    "ACC_TRDVAL": "거래대금",
+    "FLUC_RT":    "등락률",
+}
+
+
+def _fetch_krx_ohlcv(date_str: str) -> pd.DataFrame:
+    """KRX data API에 POST 요청으로 전 종목 일별 OHLCV를 가져옵니다."""
+    payload = {
+        "bld":          "dbms/MDC/STAT/standard/MDCSTAT01501",
+        "locale":       "ko_KR",
+        "mktId":        "ALL",
+        "trdDd":        date_str,
+        "share":        "1",
+        "money":        "1",
+        "csvxls_isNo":  "false",
+    }
+    resp = requests.post(_KRX_API_URL, headers=_KRX_API_HEADERS, data=payload, timeout=15)
+    resp.raise_for_status()
+    rows = resp.json().get("output", [])
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).rename(columns=_KRX_COL_MAP)
+
+    # 숫자 컬럼 변환 (쉼표 제거 후 numeric)
+    num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(",", "", regex=False),
+                errors="coerce",
+            )
+
+    if "_ticker" in df.columns:
+        df = df.set_index("_ticker")
+    if "종가" in df.columns:
+        df["현재가"] = df["종가"]
+
+    return df
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
-    """KRX에서 전 종목 OHLCV 데이터를 직접 가져옵니다.
+    """KRX data.krx.co.kr API를 직접 호출해 전 종목 OHLCV를 반환합니다.
 
-    pykrx stock.get_market_ohlcv(date, market="ALL") 사용.
     최근 10 거래일을 역순으로 조회하여 거래량이 있는 날의 데이터를 반환합니다.
-    반환 DataFrame 인덱스 = 종목코드, 컬럼 = 시가/고가/저가/종가/거래량/거래대금/등락률 + 현재가(종가 별칭)
-    pykrx import 실패 시 FinanceDataReader(KOSPI+KOSDAQ)로 폴백합니다.
+    반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
     """
-    try:
-        from pykrx import stock as pykrx_stock
-    except ImportError as e:
-        st.warning(
-            f"⚠️ pykrx import 실패: `{e}`\n\n"
-            "FinanceDataReader 폴백 데이터로 랭킹을 표시합니다. (등락률은 근사값)"
-        )
-        return _get_krx_ranking_fdr_fallback()
-
     check_date = datetime.today()
     errors: list[str] = []
+
     for _ in range(10):
         d_str = check_date.strftime("%Y%m%d")
         try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                df = pykrx_stock.get_market_ohlcv(d_str, market="ALL")
+            df = _fetch_krx_ohlcv(d_str)
 
             if df.empty:
-                errors.append(f"{d_str}: 빈 DataFrame 반환")
+                errors.append(f"{d_str}: 빈 응답 (장전/휴장)")
                 check_date -= timedelta(days=1)
                 continue
 
-            vol_col = "거래량" if "거래량" in df.columns else "Volume"
-            if vol_col not in df.columns:
-                errors.append(f"{d_str}: 거래량 컬럼 없음 (컬럼: {list(df.columns)})")
+            vol_col = "거래량" if "거래량" in df.columns else None
+            if vol_col is None or df[vol_col].sum() == 0:
+                errors.append(f"{d_str}: 거래량 합계 0")
                 check_date -= timedelta(days=1)
                 continue
-            if df[vol_col].sum() == 0:
-                errors.append(f"{d_str}: 거래량 합계 0 (장전/휴장)")
-                check_date -= timedelta(days=1)
-                continue
-
-            # 현재가 = 종가 별칭 (하위 호환)
-            if "종가" in df.columns:
-                df["현재가"] = df["종가"]
-            elif "Close" in df.columns:
-                df["현재가"] = df["Close"]
-
-            # 등락률 없으면 시가/종가로 근사 계산
-            if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
-                df["등락률"] = ((df["종가"] - df["시가"]) / df["시가"].replace(0, float("nan")) * 100).round(2)
 
             return df
 
         except Exception as exc:
-            errors.append(f"{d_str}: 예외 발생 — {exc}")
+            errors.append(f"{d_str}: 예외 — {exc}")
             check_date -= timedelta(days=1)
 
-    st.warning("⚠️ pykrx 랭킹 조회 실패 (최근 10일):\n" + "\n".join(f"- {e}" for e in errors))
+    st.warning("⚠️ KRX 랭킹 조회 실패 (최근 10일):\n" + "\n".join(f"- {e}" for e in errors))
     return pd.DataFrame()
 
-
-def _get_krx_ranking_fdr_fallback() -> pd.DataFrame:
-    """pykrx 없이 FinanceDataReader로 KOSPI+KOSDAQ 전 종목 당일 데이터를 반환합니다."""
-    import FinanceDataReader as fdr
-
-    today = datetime.today().strftime("%Y-%m-%d")
-    frames = []
-    for market in ("KOSPI", "KOSDAQ"):
-        try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                listing = fdr.StockListing(market)
-            if listing.empty or "Code" not in listing.columns:
-                continue
-
-            codes = listing["Code"].dropna().tolist()
-            # 배치로 당일 데이터 수집 (최대 200종목씩)
-            batch_size = 200
-            for i in range(0, min(len(codes), 2000), batch_size):
-                batch = codes[i : i + batch_size]
-                try:
-                    raw = fdr.DataReader(",".join(batch), today, today)
-                    if not raw.empty:
-                        frames.append(raw)
-                except Exception:
-                    pass
-        except Exception:
-            continue
-
-    if not frames:
-        return pd.DataFrame()
-
-    df = pd.concat(frames)
-    # FDR 컬럼명 → 한글 표준화
-    rename = {"Open": "시가", "High": "고가", "Low": "저가", "Close": "종가", "Volume": "거래량"}
-    df = df.rename(columns=rename)
-    if "종가" in df.columns:
-        df["현재가"] = df["종가"]
-    if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
-        df["등락률"] = ((df["종가"] - df["시가"]) / df["시가"].replace(0, float("nan")) * 100).round(2)
-    if "거래대금" not in df.columns and "종가" in df.columns and "거래량" in df.columns:
-        df["거래대금"] = df["종가"] * df["거래량"]
-    return df
 
