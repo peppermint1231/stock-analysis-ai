@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 import streamlit as st
-
+from bs4 import BeautifulSoup
 # ─── pkg_resources shim (Streamlit Cloud uv 환경 버그 우회용) ──────────────────
 # pykrx 1.2.x 에서는 여전히 __init__.py 에서 pkg_resources를 import 합니다.
 # Streamlit Cloud 최신 환경에서는 setuptools가 명시적이어도 import가 꼬이는 경우가 있어
@@ -281,19 +281,59 @@ def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
         return code, None
 
 
+def _get_top_tickers_from_naver() -> list[str]:
+    """네이버 금융 거래량/거래대금 상위 페이지를 스크래핑하여 대상 종목 코드 목록만 반환합니다.
+
+    - KOSPI 거래량/거래대금 (각 최대 100개)
+    - KOSDAQ 거래량/거래대금 (각 최대 100개)
+    총 약 150~200개의 고유 종목 코드를 매우 빠르게 수집합니다.
+    """
+    urls = [
+        "https://finance.naver.com/sise/sise_quant.naver",        # 코스피 거래량
+        "https://finance.naver.com/sise/sise_quant.naver?sosok=1", # 코스닥 거래량
+        "https://finance.naver.com/sise/sise_quant_high.naver",        # 코스피 거래대금
+        "https://finance.naver.com/sise/sise_quant_high.naver?sosok=1" # 코스닥 거래대금
+    ]
+    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    tickers = set()
+    
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=5)
+            soup = BeautifulSoup(res.text, "html.parser")
+            # a 태그 중 href가 code= 로 끝나는 종목 링크 추출
+            links = soup.select("table.type_2 a.tltle")
+            for a in links:
+                href = a.get("href", "")
+                if "code=" in href:
+                    code = href.split("code=")[-1]
+                    # ETF/ETN (통상 5~6자리지만 숫자로만 구성됨), 
+                    # 원한다면 여기서 단순 필터링 가능하지만 기존 방식처럼 일단 다 수집
+                    if len(code) == 6 and code.isdigit():
+                        tickers.add(code)
+        except Exception:
+            continue
+            
+    return list(tickers)
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
-    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 FDR로 병렬 fetch해 거래량 기준 반환합니다.
-
-    Streamlit Cloud에서의 StockListing 파싱 실패를 우회하기 위해,
-    이미 안정성이 검증된 `get_krx_mapping`의 키(종목코드) 목록을 재활용합니다.
+    """네이버 증권 시세 페이지에서 (거래량, 거래대금) 상위 100~200 종목 코드만 추출한 뒤
+    FDR을 통해 해당 종목들만 병렬 fetch하여 반환합니다.
+    수천 개의 전체 종목 API 호출을 생략하여 타임아웃 오류 없이 즉시 렌더링됩니다.
     """
-    mapping = get_krx_mapping()
-    if not mapping:
-        st.warning("⚠️ 종목 마스터(get_krx_mapping)에서 코드를 가져올 수 없어 랭킹을 표시할 수 없습니다.")
-        return pd.DataFrame()
-
-    codes = list(mapping.keys())
+    codes = _get_top_tickers_from_naver()
+    
+    if not codes:
+        # Fallback: 로컬 캐시에서 일부라도 가져오기 시도
+        mapping = get_krx_mapping()
+        if mapping:
+            codes = list(mapping.keys())[:200]
+        else:
+            st.warning("⚠️ 실시간 랭킹 종목 목록을 가져오는데 실패했습니다.")
+            return pd.DataFrame()
 
     # 최근 5 거래일 역순 시도
     for delta in range(5):
