@@ -111,11 +111,21 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
             html += f"""
 <div style="border:1px solid #e2e8f0;border-radius:12px;padding:20px 15px;background:white;
 box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:15px;">
-  <div style="flex:1 1 100%;">
-    <div style="margin-bottom:25px;font-weight:bold;font-size:15px;">
-      {name} <span style="font-size:13px;color:gray;font-weight:normal;">
-        ({close_p:,.0f}원 <span style="color:{color};">{c_pct:+.2f}%</span>)
-      </span>
+  <div>    
+    <div style="margin-bottom:25px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        {name} <span style="font-size:13px;color:gray;font-weight:normal;">
+          ({close_p:,.0f}원 <span style="color:{color};">{c_pct:+.2f}%</span>)
+        </span>
+      </div>
+      """
+
+            # Add volume if it exists
+            vol = float(df.loc[ticker, "거래량"]) if "거래량" in df.columns else 0
+            if vol > 0:
+                html += f'<div style="font-size:12px;color:#868e96;font-weight:normal;">주 {int(vol):,}</div>'
+
+            html += """
     </div>
     <div style="position:relative;width:100%;height:40px;background-color:#f8f9fa;
       border-radius:4px;border:1px solid #e9ecef;">
