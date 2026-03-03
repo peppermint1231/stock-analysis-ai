@@ -299,97 +299,13 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings ─────────────────────────────────────────────────────────────
-# 전략: KRX 직접 API(1순위) → FDR 전체 종목 병렬(폴백)
-
-_KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
-_KRX_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
-    # Content-Type은 requests가 POST data= 에서 자동 설정 — 중복 설정하면 충돌
-}
-_KRX_COL_MAP = {
-    "ISU_SRT_CD": "_ticker", "ISU_ABBRV": "종목명_raw",
-    "TDD_OPNPRC": "시가",    "TDD_HGPRC": "고가",
-    "TDD_LWPRC":  "저가",    "TDD_CLSPRC": "종가",
-    "ACC_TRDVOL": "거래량",  "ACC_TRDVAL": "거래대금",
-    "FLUC_RT":    "등락률",
-}
-_KRX_OUTPUT_KEYS = ("output", "OutBlock_1", "output1", "data", "result")
+# ─── KRX Rankings (FinanceDataReader 병렬 fetch) ─────────────────────────────
+# KRX 직접 API는 시장 전체 OHLCV에 인증(로그인)을 요구(LOGOUT 응답)하므로 사용 불가.
+# FDR DataReader(개별 종목) + ThreadPoolExecutor 병렬 처리로 전체 시장 거래량 랭킹 구성.
 
 
-def _parse_krx_rows(json_data: dict) -> list:
-    for key in _KRX_OUTPUT_KEYS:
-        rows = json_data.get(key)
-        if rows:
-            return rows
-    for val in json_data.values():
-        if isinstance(val, list) and val:
-            return val
-    return []
-
-
-def _fetch_krx_market(date_str: str) -> tuple[pd.DataFrame, str]:
-    """KRX data API로 전 종목 OHLCV를 fetch."""
-    sess = requests.Session()
-    sess.headers.update(_KRX_HEADERS)
-
-    all_rows: list[dict] = []
-    debug_info: list[str] = []
-
-    for mkt in ("STK", "KSQ", "KNX"):
-        # 최소 파라미터만 사용 (extra params might cause 400)
-        payload = {
-            "bld":    "dbms/MDC/STAT/standard/MDCSTAT02501",
-            "locale": "ko_KR",
-            "mktId":  mkt,
-            "trdDd":  date_str,
-        }
-        try:
-            resp = sess.post(_KRX_API_URL, data=payload, timeout=15)
-            if resp.status_code != 200:
-                debug_info.append(f"{mkt}:HTTP{resp.status_code} body={resp.text[:200]}")
-                continue
-            data = resp.json()
-            debug_info.append(f"{mkt}:keys={list(data.keys())[:5]}")
-            rows = _parse_krx_rows(data)
-            all_rows.extend(rows)
-        except Exception as exc:
-            debug_info.append(f"{mkt}:err={exc}")
-
-    if not all_rows:
-        return pd.DataFrame(), f"KRX API 응답 없음 ({'; '.join(debug_info)})"
-
-    df = pd.DataFrame(all_rows).rename(columns=_KRX_COL_MAP)
-    num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
-    for col in num_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "", regex=False), errors="coerce")
-    if "_ticker" in df.columns:
-        df = df.set_index("_ticker")
-    if "종가" in df.columns:
-        df["현재가"] = df["종가"]
-    return df, "krx"
-
-
-
-def _fdr_today_ohlcv(code: str) -> tuple[str, pd.DataFrame]:
-    """단일 종목의 오늘 OHLCV를 FDR로 가져옵니다."""
-    import FinanceDataReader as fdr
-    today = datetime.today().strftime("%Y-%m-%d")
-    try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            df = fdr.DataReader(code, today, today)
-        return code, df
-    except Exception:
-        return code, pd.DataFrame()
-
-
-def _fdr_full_market_ranking() -> pd.DataFrame:
-    """FDR로 KOSPI+KOSDAQ 전 종목 당일 OHLCV를 병렬 fetch해 거래량 기준 반환합니다."""
+def _get_all_stock_codes() -> list[str]:
+    """KOSPI+KOSDAQ 전 종목 코드를 FDR StockListing으로 반환합니다."""
     import FinanceDataReader as fdr
 
     codes: list[str] = []
@@ -402,73 +318,96 @@ def _fdr_full_market_ranking() -> pd.DataFrame:
                 codes.extend(listing[code_col].dropna().astype(str).tolist())
         except Exception:
             pass
-
-    if not codes:
-        return pd.DataFrame()
-
-    results: dict[str, pd.DataFrame] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
-        futs = {ex.submit(_fdr_today_ohlcv, c): c for c in codes}
-        for fut in concurrent.futures.as_completed(futs, timeout=60):
-            code, df = fut.result()
-            if not df.empty:
-                results[code] = df
-
-    if not results:
-        return pd.DataFrame()
-
-    rename = {"Open": "시가", "High": "고가", "Low": "저가", "Close": "종가", "Volume": "거래량"}
-    rows = []
-    for code, df in results.items():
-        row = df.rename(columns=rename).iloc[-1].to_dict()
-        row["_code"] = code
-        rows.append(row)
-
-    result_df = pd.DataFrame(rows).set_index("_code")
-    if "등락률" not in result_df.columns and "시가" in result_df.columns and "종가" in result_df.columns:
-        s = result_df["시가"].replace(0, float("nan"))
-        result_df["등락률"] = ((result_df["종가"] - s) / s * 100).round(2)
-    if "거래대금" not in result_df.columns and "종가" in result_df.columns and "거래량" in result_df.columns:
-        result_df["거래대금"] = result_df["종가"] * result_df["거래량"]
-    if "종가" in result_df.columns:
-        result_df["현재가"] = result_df["종가"]
-    if "거래량" in result_df.columns:
-        result_df = result_df[result_df["거래량"] > 0]
-    return result_df.sort_values("거래량", ascending=False) if "거래량" in result_df.columns else result_df
+    return codes
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
+    """단일 종목의 특정 날짜 OHLCV를 FDR DataReader로 가져옵니다."""
+    import FinanceDataReader as fdr
+
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            df = fdr.DataReader(code, date_str, date_str)
+        if df.empty:
+            return code, None
+        row = df.iloc[-1].rename({
+            "Open": "시가", "High": "고가", "Low": "저가",
+            "Close": "종가", "Volume": "거래량",
+        }).to_dict()
+        # 거래량이 0이면 장전/휴장 데이터
+        if row.get("거래량", 0) == 0:
+            return code, None
+        return code, row
+    except Exception:
+        return code, None
+
+
+@st.cache_data(ttl=600, show_spinner=False)  # 10분 캐시 — 전 종목 fetch는 비용이 크므로
 def get_krx_ranking() -> pd.DataFrame:
-    """전체 시장 거래량 상위 종목 OHLCV를 반환합니다.
+    """KOSPI+KOSDAQ 전 종목 당일 OHLCV를 FDR로 병렬 fetch해 거래량 기준 반환합니다.
 
-    1순위: KRX 직접 HTTP API (data.krx.co.kr, 전 종목 단일 요청)
-    2순위: FinanceDataReader 전 종목 병렬 fetch (1순위 실패 시)
     반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
+    최근 5 거래일을 역순으로 시도해 거래량이 있는 날의 데이터를 반환합니다.
     """
-    check_date = datetime.today()
-    krx_errors: list[str] = []
+    codes = _get_all_stock_codes()
+    if not codes:
+        st.warning("⚠️ FDR 종목 리스팅 실패 — 종목 코드를 가져올 수 없습니다.")
+        return pd.DataFrame()
 
-    # 1순위: KRX 직접 API (최근 10 거래일 역순)
-    for _ in range(10):
-        d_str = check_date.strftime("%Y%m%d")
-        df, reason = _fetch_krx_market(d_str)
-        if not df.empty:
-            vol_col = "거래량" if "거래량" in df.columns else None
-            if vol_col and df[vol_col].sum() > 0:
-                return df
-            krx_errors.append(f"{d_str}: 거래량 합계 0")
-        else:
-            krx_errors.append(f"{d_str}: {reason}")
-        check_date -= timedelta(days=1)
+    # 최근 5 거래일 역순으로 시도 (오늘 포함, 주말/공휴일 건너뜀)
+    for delta in range(5):
+        check_date = datetime.today() - timedelta(days=delta)
+        date_str = check_date.strftime("%Y-%m-%d")
 
-    # KRX API 실패 이유 표시
-    st.warning("⚠️ KRX 직접 API 실패, FDR 전체 종목 모드로 전환 중...\n" + "\n".join(f"- {e}" for e in krx_errors[:3]))
+        rows: list[dict] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
+            futs = {ex.submit(_fetch_one_stock_ohlcv, code, date_str): code for code in codes}
+            for fut in concurrent.futures.as_completed(futs, timeout=90):
+                _, row = fut.result()
+                if row is not None:
+                    rows.append(row)
 
-    # 2순위: FDR 전 종목 병렬 fetch (시간이 더 걸림)
-    df = _fdr_full_market_ranking()
-    if df.empty:
-        st.info("장 시작 전이거나 휴장일입니다. (No Data for Ranking)")
-    return df
+        if not rows:
+            continue  # 당일 데이터 없음 → 하루 전으로
+
+        df = pd.DataFrame(rows)
+
+        # 숫자형 변환
+        for col in ("시가", "고가", "저가", "종가", "거래량"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # 거래량 > 0인 행만 유지
+        if "거래량" in df.columns:
+            df = df[df["거래량"] > 0]
+
+        if df.empty:
+            continue
+
+        # 등락률 계산 (없으면 시가→종가 근사)
+        if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
+            s = df["시가"].replace(0, float("nan"))
+            df["등락률"] = ((df["종가"] - s) / s * 100).round(2)
+
+        # 거래대금 = 종가 × 거래량
+        if "거래대금" not in df.columns and "종가" in df.columns and "거래량" in df.columns:
+            df["거래대금"] = df["종가"] * df["거래량"]
+
+        if "종가" in df.columns:
+            df["현재가"] = df["종가"]
+
+        # 인덱스로 종목코드가 없으면 _code 행에서 꺼냄
+        if "_code" in df.columns:
+            df = df.set_index("_code")
+
+        return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
+
+    # 5일 모두 데이터 없음
+    return pd.DataFrame()
+
+
+
+
 
 
 
