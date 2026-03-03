@@ -12,3 +12,4 @@ streamlit-autorefresh
 streamlit-local-storage
 finance-datareader
 pykrx==1.0.51
+setuptools
