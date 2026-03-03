@@ -299,75 +299,53 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (직접 HTTP API) ────────────────────────────────────────────
+# ─── KRX Rankings (Naver 모바일 API) ─────────────────────────────────────────
 
-_KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
-_KRX_API_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+_NAVER_STOCK_API = "https://m.stock.naver.com/api/stocks/top"
+_NAVER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
+    "Referer": "https://m.stock.naver.com/",
 }
-# KRX API 응답 필드명 → 표준 한글 컬럼명
-_KRX_COL_MAP = {
-    "ISU_SRT_CD": "_ticker",
-    "ISU_ABBRV":  "종목명_raw",
-    "TDD_OPNPRC": "시가",
-    "TDD_HGPRC":  "고가",
-    "TDD_LWPRC":  "저가",
-    "TDD_CLSPRC": "종가",
-    "ACC_TRDVOL": "거래량",
-    "ACC_TRDVAL": "거래대금",
-    "FLUC_RT":    "등락률",
+# Naver API 응답 필드명 → 표준 한글 컬럼명
+_NAVER_COL_MAP = {
+    "itemCode":       "_ticker",
+    "openPrice":      "시가",
+    "highPrice":      "고가",
+    "lowPrice":       "저가",
+    "closePrice":     "종가",
+    "accumulatedTradingVolume": "거래량",
+    "accumulatedTradingValue":  "거래대금",
+    "fluctuationsRatio":        "등락률",
 }
-# KOSPI=STK, KOSDAQ=KSQ, KONEX=KNX
-_KRX_MARKETS = ("STK", "KSQ", "KNX")
 
 
-def _krx_session() -> requests.Session:
-    """KRX 쿠키 선취득 세션을 반환합니다."""
-    sess = requests.Session()
-    sess.headers.update(_KRX_API_HEADERS)
-    try:
-        sess.get("http://data.krx.co.kr/", timeout=8)
-    except Exception:
-        pass
-    return sess
-
-
-def _fetch_krx_ohlcv(date_str: str) -> pd.DataFrame:
-    """KRX data API에 POST 요청으로 전 종목 일별 OHLCV를 가져옵니다.
-
-    KOSPI(STK) + KOSDAQ(KSQ) + KONEX(KNX) 각각 조회 후 합칩니다.
-    bld: dbms/MDC/STAT/standard/MDCSTAT02501 (주식 일별 시세)
-    """
-    sess = _krx_session()
+def _fetch_naver_volume_ranking(page_size: int = 100) -> pd.DataFrame:
+    """Naver 모바일 주식 API에서 KOSPI+KOSDAQ 거래량 상위 종목을 가져옵니다."""
     frames: list[pd.DataFrame] = []
 
-    for mkt in _KRX_MARKETS:
-        payload = {
-            "bld":         "dbms/MDC/STAT/standard/MDCSTAT02501",
-            "locale":      "ko_KR",
-            "mktId":       mkt,
-            "trdDd":       date_str,
-            "share":       "1",
-            "money":       "1",
-            "csvxls_isNo": "false",
-        }
+    for market in ("KOSPI", "KOSDAQ"):
         try:
-            resp = sess.post(_KRX_API_URL, data=payload, timeout=15)
+            resp = requests.get(
+                _NAVER_STOCK_API,
+                params={"market": market, "type": "VOLUME", "pageSize": str(page_size), "page": "1"},
+                headers=_NAVER_HEADERS,
+                timeout=10,
+            )
             resp.raise_for_status()
-            rows = resp.json().get("output", [])
-            if rows:
-                frames.append(pd.DataFrame(rows))
+            data = resp.json()
+            # 응답 구조: {"stocks": [...]} 또는 직접 리스트
+            items = data if isinstance(data, list) else data.get("stocks", data.get("items", []))
+            if items:
+                frames.append(pd.DataFrame(items))
         except Exception:
             continue
 
     if not frames:
         return pd.DataFrame()
 
-    df = pd.concat(frames, ignore_index=True).rename(columns=_KRX_COL_MAP)
+    df = pd.concat(frames, ignore_index=True).rename(columns=_NAVER_COL_MAP)
 
-    # 숫자 컬럼 변환 (쉼표 제거 후 numeric)
+    # 숫자 컬럼 변환
     num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
     for col in num_cols:
         if col in df.columns:
@@ -386,37 +364,27 @@ def _fetch_krx_ohlcv(date_str: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
-    """KRX data.krx.co.kr API를 직접 호출해 전 종목 OHLCV를 반환합니다.
+    """Naver 모바일 API로 KOSPI+KOSDAQ 거래량 상위 종목 OHLCV를 반환합니다.
 
-    최근 10 거래일을 역순으로 조회하여 거래량이 있는 날의 데이터를 반환합니다.
     반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
+    장중에는 실시간 데이터, 장 종료 후에는 최종 데이터를 반환합니다.
     """
-    check_date = datetime.today()
-    errors: list[str] = []
+    try:
+        df = _fetch_naver_volume_ranking()
 
-    for _ in range(10):
-        d_str = check_date.strftime("%Y%m%d")
-        try:
-            df = _fetch_krx_ohlcv(d_str)
+        if df.empty:
+            st.warning("⚠️ Naver 주식 API에서 데이터를 가져오지 못했습니다.")
+            return pd.DataFrame()
 
-            if df.empty:
-                errors.append(f"{d_str}: 빈 응답 (장전/휴장)")
-                check_date -= timedelta(days=1)
-                continue
+        vol_col = "거래량" if "거래량" in df.columns else None
+        if vol_col is None or df[vol_col].sum() == 0:
+            return pd.DataFrame()
 
-            vol_col = "거래량" if "거래량" in df.columns else None
-            if vol_col is None or df[vol_col].sum() == 0:
-                errors.append(f"{d_str}: 거래량 합계 0")
-                check_date -= timedelta(days=1)
-                continue
+        return df
 
-            return df
+    except Exception as exc:
+        st.warning(f"⚠️ 랭킹 데이터 조회 실패: {exc}")
+        return pd.DataFrame()
 
-        except Exception as exc:
-            errors.append(f"{d_str}: 예외 — {exc}")
-            check_date -= timedelta(days=1)
-
-    st.warning("⚠️ KRX 랭킹 조회 실패 (최근 10일):\n" + "\n".join(f"- {e}" for e in errors))
-    return pd.DataFrame()
 
 
