@@ -303,10 +303,16 @@ def get_krx_ranking() -> pd.DataFrame:
         rows: list[dict] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=30) as ex:
             futs = {ex.submit(_fetch_one_stock_ohlcv, code, date_str): code for code in codes}
-            for fut in concurrent.futures.as_completed(futs, timeout=90):
-                _, row = fut.result()
-                if row is not None:
-                    rows.append(row)
+            try:
+                for fut in concurrent.futures.as_completed(futs, timeout=120):
+                    try:
+                        _, row = fut.result()
+                        if row is not None:
+                            rows.append(row)
+                    except Exception:
+                        pass
+            except concurrent.futures.TimeoutError:
+                st.warning("⚠️ 일부 종목 데이터를 가져오는 중 지연이 발생하여 수집된 데이터까지만 표시합니다.")
 
         if not rows:
             continue
