@@ -145,8 +145,15 @@ def process_top_10(df_subset: pd.DataFrame, ticker_map: dict[str, str], base_dat
     df = df_subset.copy()
 
     # 종목명 컬럼 = 네이버 증권 링크
+    def _get_name(t: str) -> str:
+        if "종목명" in df_subset.columns:
+            name_in_df = df_subset.loc[t, "종목명"]
+            if pd.notna(name_in_df) and str(name_in_df).strip():
+                return str(name_in_df)
+        return ticker_map.get(t, t)
+
     df["종목명"] = [
-        f"https://finance.naver.com/item/main.naver?code={t}&name={ticker_map.get(t, t)}"
+        f"https://finance.naver.com/item/main.naver?code={t}&name={_get_name(t)}"
         for t in df.index
     ]
 

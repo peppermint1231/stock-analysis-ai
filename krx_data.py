@@ -281,7 +281,7 @@ def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
         return code, None
 
 
-def _get_top_tickers_from_naver() -> list[str]:
+def _get_top_tickers_from_naver() -> dict[str, str]:
     """네이버 금융 거래량/거래대금 상위 페이지를 스크래핑하여 대상 종목 코드 목록만 반환합니다.
 
     - KOSPI 거래량/거래대금 (각 최대 100개)
@@ -296,7 +296,7 @@ def _get_top_tickers_from_naver() -> list[str]:
     ]
     
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    tickers = set()
+    tickers = {}
     
     for url in urls:
         try:
@@ -308,14 +308,15 @@ def _get_top_tickers_from_naver() -> list[str]:
                 href = a.get("href", "")
                 if "code=" in href:
                     code = href.split("code=")[-1]
+                    name = a.text.strip()
                     # ETF/ETN (통상 5~6자리지만 숫자로만 구성됨), 
                     # 원한다면 여기서 단순 필터링 가능하지만 기존 방식처럼 일단 다 수집
                     if len(code) == 6 and code.isdigit():
-                        tickers.add(code)
+                        tickers[code] = name
         except Exception:
             continue
             
-    return list(tickers)
+    return tickers
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -324,16 +325,19 @@ def get_krx_ranking() -> pd.DataFrame:
     FDR을 통해 해당 종목들만 병렬 fetch하여 반환합니다.
     수천 개의 전체 종목 API 호출을 생략하여 타임아웃 오류 없이 즉시 렌더링됩니다.
     """
-    codes = _get_top_tickers_from_naver()
+    codes_dict = _get_top_tickers_from_naver()
     
-    if not codes:
+    if not codes_dict:
         # Fallback: 로컬 캐시에서 일부라도 가져오기 시도
         mapping = get_krx_mapping()
         if mapping:
             codes = list(mapping.keys())[:200]
+            codes_dict = {c: mapping[c] for c in codes}
         else:
             st.warning("⚠️ 실시간 랭킹 종목 목록을 가져오는데 실패했습니다.")
             return pd.DataFrame()
+    else:
+        codes = list(codes_dict.keys())
 
     # 최근 5 거래일 역순 시도
     for delta in range(5):
@@ -380,6 +384,8 @@ def get_krx_ranking() -> pd.DataFrame:
 
         if "종가" in df.columns:
             df["현재가"] = df["종가"]
+
+        df["종목명"] = df["_code"].map(codes_dict)
 
         if "_code" in df.columns:
             df = df.set_index("_code")
