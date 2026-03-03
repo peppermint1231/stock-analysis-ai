@@ -269,13 +269,20 @@ def get_krx_ranking() -> pd.DataFrame:
     for _ in range(10):
         d_str = check_date.strftime("%Y%m%d")
         try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                df = pykrx_stock.get_market_ohlcv(d_str, market="ALL")
+            frames = []
+            for mkt in ("KOSPI", "KOSDAQ", "KONEX"):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    tmp = pykrx_stock.get_market_ohlcv(d_str, market=mkt)
+                if not tmp.empty:
+                    frames.append(tmp)
 
-            if df.empty:
+            if not frames:
                 errors.append(f"{d_str}: 빈 DataFrame 반환")
                 check_date -= timedelta(days=1)
                 continue
+
+            df = pd.concat(frames)
+            df = df[~df.index.duplicated(keep="first")]
 
             vol_col = "거래량" if "거래량" in df.columns else "Volume"
             if vol_col not in df.columns:
@@ -293,8 +300,7 @@ def get_krx_ranking() -> pd.DataFrame:
             elif "Close" in df.columns:
                 df["현재가"] = df["Close"]
 
-            # 등락률 정규화: pykrx는 이미 전일 종가 기준 등락률을 제공
-            # 없는 경우만 시가/종가로 근사 계산
+            # 등락률 없으면 시가/종가로 근사 계산
             if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
                 df["등락률"] = ((df["종가"] - df["시가"]) / df["시가"].replace(0, float("nan")) * 100).round(2)
 
