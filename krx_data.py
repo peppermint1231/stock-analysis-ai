@@ -309,6 +309,7 @@ def _get_all_stock_codes() -> list[str]:
     import FinanceDataReader as fdr
 
     codes: list[str] = []
+    errors: list[str] = []
     for market in ("KOSPI", "KOSDAQ"):
         try:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -316,8 +317,13 @@ def _get_all_stock_codes() -> list[str]:
             code_col = next((c for c in ("Code", "Symbol") if c in listing.columns), None)
             if code_col:
                 codes.extend(listing[code_col].dropna().astype(str).tolist())
-        except Exception:
-            pass
+                errors.append(f"{market}: {len(listing)}개 (code_col={code_col})")
+            else:
+                errors.append(f"{market}: code 컬럼 없음, 컬럼={list(listing.columns[:6])}")
+        except Exception as exc:
+            errors.append(f"{market}: 예외={exc}")
+    if not codes:
+        st.warning("⚠️ FDR StockListing 실패:\n" + "\n".join(f"- {e}" for e in errors))
     return codes
 
 
