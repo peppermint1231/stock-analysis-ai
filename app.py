@@ -404,7 +404,7 @@ def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label,
     st.divider()
 
     base_cols = ["Open", "High", "Low", "Close", "Volume"]
-    indicator_cols = ["SMA_20", "SMA_60", "RSI_14", "MACD", "BB_Upper", "BB_Lower"]
+    indicator_cols = ["SMA_5", "SMA_20", "SMA_60", "RSI_14", "MACD", "BB_Upper", "BB_Lower"]
 
     if selected_data is None:
         display_cols = base_cols + indicator_cols + [c for c in df.columns if c not in base_cols + indicator_cols]

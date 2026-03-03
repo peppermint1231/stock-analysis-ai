@@ -5,7 +5,7 @@ def calculate_indicators(df):
     """
     Calculates technical indicators using standard pandas functions.
     Expects df to have 'Close' column.
-    Returns df with added columns: SMA_20, SMA_60, RSI_14, MACD, BB_Upper, BB_Lower.
+    Returns df with added columns: SMA_5, SMA_20, SMA_60, RSI_14, MACD, BB_Upper, BB_Lower.
     """
     if df is None or df.empty:
         return df
@@ -18,8 +18,9 @@ def calculate_indicators(df):
     df = df.copy()
 
     # 1. Moving Averages
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['SMA_60'] = df['Close'].rolling(window=60).mean()
+    df['SMA_5'] = df['Close'].rolling(window=5, min_periods=1).mean()
+    df['SMA_20'] = df['Close'].rolling(window=20, min_periods=1).mean()
+    df['SMA_60'] = df['Close'].rolling(window=60, min_periods=1).mean()
     
     # 2. RSI (Relative Strength Index)
     delta = df['Close'].diff()
@@ -49,13 +50,20 @@ def calculate_indicators(df):
     # Middle Band = 20 SMA
     # Upper Band = 20 SMA + (20 SD * 2)
     # Lower Band = 20 SMA - (20 SD * 2)
-    std_20 = df['Close'].rolling(window=20).std()
+    std_20 = df['Close'].rolling(window=20, min_periods=1).std()
     
     df['BB_Upper'] = df['SMA_20'] + (std_20 * 2)
     df['BB_Lower'] = df['SMA_20'] - (std_20 * 2)
+    
+    # Fill any remaining NaNs (std_20 needs at least 2 periods, so first row is NaN)
+    df['BB_Upper'] = df['BB_Upper'].bfill().fillna(df['Close'])
+    df['BB_Lower'] = df['BB_Lower'].bfill().fillna(df['Close'])
+    
+    # Also bfill RSI and MACD just in case
+    df['RSI_14'] = df['RSI_14'].bfill().fillna(50)
+    df['MACD'] = df['MACD'].bfill().fillna(0)
         
     return df
-
 def resample_ohlcv(df, period):
     """
     Resamples OHLCV data to a different period.
