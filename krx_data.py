@@ -269,20 +269,13 @@ def get_krx_ranking() -> pd.DataFrame:
     for _ in range(10):
         d_str = check_date.strftime("%Y%m%d")
         try:
-            frames = []
-            for mkt in ("KOSPI", "KOSDAQ", "KONEX"):
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                    tmp = pykrx_stock.get_market_ohlcv(d_str, market=mkt)
-                if not tmp.empty:
-                    frames.append(tmp)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                df = pykrx_stock.get_market_ohlcv(d_str, market="ALL")
 
-            if not frames:
+            if df.empty:
                 errors.append(f"{d_str}: 빈 DataFrame 반환")
                 check_date -= timedelta(days=1)
                 continue
-
-            df = pd.concat(frames)
-            df = df[~df.index.duplicated(keep="first")]
 
             vol_col = "거래량" if "거래량" in df.columns else "Volume"
             if vol_col not in df.columns:
