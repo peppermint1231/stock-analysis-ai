@@ -76,7 +76,9 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
 
     for ticker in df.index:
         try:
-            name = ticker_map.get(ticker, str(ticker))
+            name_in_df = df.loc[ticker, "종목명"] if "종목명" in df.columns else ""
+            name = str(name_in_df) if pd.notna(name_in_df) and str(name_in_df).strip() else ticker_map.get(str(ticker), str(ticker))
+            
             close_p = float(df.loc[ticker, "현재가"])
             open_p = float(df.loc[ticker, "시가"]) if "시가" in df.columns else close_p
             high_p = float(df.loc[ticker, "고가"]) if "고가" in df.columns else close_p
