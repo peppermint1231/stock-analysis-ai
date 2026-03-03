@@ -18,13 +18,15 @@ import streamlit as st
 import yfinance as yf
 
 # ─── pkg_resources shim ──────────────────────────────────────────────────────
-# pykrx 1.0.51 uses `pkg_resources.get_distribution()` at import time.
-# In environments where setuptools is installed via uv but not in venv's PATH,
-# `pkg_resources` is missing. We inject a minimal shim so pykrx can import.
+# pykrx 1.0.51 uses pkg_resources at import time.
+# In uv/venv environments, pkg_resources can be missing even with setuptools.
+# We inject a minimal shim covering every attribute pykrx actually uses.
 try:
     import pkg_resources  # noqa: F401
 except ImportError:
     import importlib.metadata
+    import importlib.util
+    import os as _os
     import types as _types
 
     _pkg = _types.ModuleType("pkg_resources")
@@ -38,11 +40,26 @@ except ImportError:
         def __str__(self) -> str:
             return self.version
 
+    def _resource_filename(package_or_req: str, resource_name: str) -> str:
+        """Return the true filesystem path of a resource file inside a package."""
+        try:
+            spec = importlib.util.find_spec(package_or_req)
+            if spec and spec.origin:
+                return _os.path.join(_os.path.dirname(spec.origin), resource_name)
+        except Exception:
+            pass
+        return resource_name
+
     _pkg.get_distribution = lambda name: _Dist(name)  # type: ignore[assignment]
     _pkg.require = lambda *a, **kw: []  # type: ignore[assignment]
+    _pkg.resource_filename = _resource_filename  # type: ignore[assignment]
+    _pkg.resource_string = lambda *a, **kw: b""  # type: ignore[assignment]
+    _pkg.resource_listdir = lambda *a, **kw: []  # type: ignore[assignment]
+    _pkg.resource_exists = lambda *a, **kw: False  # type: ignore[assignment]
     _pkg.DistributionNotFound = Exception  # type: ignore[assignment]
     _pkg.VersionConflict = Exception  # type: ignore[assignment]
     sys.modules["pkg_resources"] = _pkg
+
 
 
 # ─── Constants ───────────────────────────────────────────────────────────────
