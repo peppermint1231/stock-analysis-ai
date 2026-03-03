@@ -319,26 +319,53 @@ _KRX_COL_MAP = {
     "ACC_TRDVAL": "거래대금",
     "FLUC_RT":    "등락률",
 }
+# KOSPI=STK, KOSDAQ=KSQ, KONEX=KNX
+_KRX_MARKETS = ("STK", "KSQ", "KNX")
+
+
+def _krx_session() -> requests.Session:
+    """KRX 쿠키 선취득 세션을 반환합니다."""
+    sess = requests.Session()
+    sess.headers.update(_KRX_API_HEADERS)
+    try:
+        sess.get("http://data.krx.co.kr/", timeout=8)
+    except Exception:
+        pass
+    return sess
 
 
 def _fetch_krx_ohlcv(date_str: str) -> pd.DataFrame:
-    """KRX data API에 POST 요청으로 전 종목 일별 OHLCV를 가져옵니다."""
-    payload = {
-        "bld":          "dbms/MDC/STAT/standard/MDCSTAT01501",
-        "locale":       "ko_KR",
-        "mktId":        "ALL",
-        "trdDd":        date_str,
-        "share":        "1",
-        "money":        "1",
-        "csvxls_isNo":  "false",
-    }
-    resp = requests.post(_KRX_API_URL, headers=_KRX_API_HEADERS, data=payload, timeout=15)
-    resp.raise_for_status()
-    rows = resp.json().get("output", [])
-    if not rows:
+    """KRX data API에 POST 요청으로 전 종목 일별 OHLCV를 가져옵니다.
+
+    KOSPI(STK) + KOSDAQ(KSQ) + KONEX(KNX) 각각 조회 후 합칩니다.
+    bld: dbms/MDC/STAT/standard/MDCSTAT02501 (주식 일별 시세)
+    """
+    sess = _krx_session()
+    frames: list[pd.DataFrame] = []
+
+    for mkt in _KRX_MARKETS:
+        payload = {
+            "bld":         "dbms/MDC/STAT/standard/MDCSTAT02501",
+            "locale":      "ko_KR",
+            "mktId":       mkt,
+            "trdDd":       date_str,
+            "share":       "1",
+            "money":       "1",
+            "csvxls_isNo": "false",
+        }
+        try:
+            resp = sess.post(_KRX_API_URL, data=payload, timeout=15)
+            resp.raise_for_status()
+            rows = resp.json().get("output", [])
+            if rows:
+                frames.append(pd.DataFrame(rows))
+        except Exception:
+            continue
+
+    if not frames:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows).rename(columns=_KRX_COL_MAP)
+    df = pd.concat(frames, ignore_index=True).rename(columns=_KRX_COL_MAP)
 
     # 숫자 컬럼 변환 (쉼표 제거 후 numeric)
     num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
