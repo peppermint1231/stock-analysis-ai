@@ -17,6 +17,34 @@ import requests
 import streamlit as st
 import yfinance as yf
 
+# ─── pkg_resources shim ──────────────────────────────────────────────────────
+# pykrx 1.0.51 uses `pkg_resources.get_distribution()` at import time.
+# In environments where setuptools is installed via uv but not in venv's PATH,
+# `pkg_resources` is missing. We inject a minimal shim so pykrx can import.
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    import importlib.metadata
+    import types as _types
+
+    _pkg = _types.ModuleType("pkg_resources")
+
+    class _Dist:
+        def __init__(self, name: str) -> None:
+            try:
+                self.version = importlib.metadata.version(name)
+            except importlib.metadata.PackageNotFoundError:
+                self.version = "0.0.0"
+        def __str__(self) -> str:
+            return self.version
+
+    _pkg.get_distribution = lambda name: _Dist(name)  # type: ignore[assignment]
+    _pkg.require = lambda *a, **kw: []  # type: ignore[assignment]
+    _pkg.DistributionNotFound = Exception  # type: ignore[assignment]
+    _pkg.VersionConflict = Exception  # type: ignore[assignment]
+    sys.modules["pkg_resources"] = _pkg
+
+
 # ─── Constants ───────────────────────────────────────────────────────────────
 _KRX_CACHE_FILE = "krx_mapping_cache.json"
 
