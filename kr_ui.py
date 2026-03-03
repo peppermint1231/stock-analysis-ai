@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 
 import FinanceDataReader as fdr
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from pykrx import stock
+from bs4 import BeautifulSoup
 
 
 # ─── Style Helpers ────────────────────────────────────────────────────────────
@@ -65,6 +66,51 @@ def color_name(row: pd.Series) -> list[str]:
     return styles
 
 
+# ─── Investor Data (Naver Finance Scraping) ──────────────────────────────────
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _get_naver_investor_data(ticker: str) -> dict:
+    """Naver Finance frgn.naver에서 기관/외국인 순매수량을 가져옵니다.
+    개인 = -(기관 + 외국인), 기타법인 = 0 (Naver에서 미제공)
+    """
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        tables = soup.find_all("table", {"class": "type2"})
+        for table in tables:
+            rows = table.find_all("tr")
+            for row in rows:
+                cells = row.find_all("td")
+                if len(cells) >= 7:
+                    date_text = cells[0].text.strip()
+                    # 날짜 형식: YYYY.MM.DD
+                    if len(date_text) == 10 and "." in date_text:
+                        try:
+                            # col5: 기관순매매수량, col6: 외국인순매매수량
+                            def _parse_num(s: str) -> int:
+                                s = s.replace(",", "").replace("+", "").strip()
+                                return int(s) if s and s != "-" else 0
+
+                            inst_val = _parse_num(cells[5].text)
+                            foreign_val = _parse_num(cells[6].text)
+                            retail_val = -(inst_val + foreign_val)
+                            return {
+                                "개인": retail_val,
+                                "외국인": foreign_val,
+                                "기관": inst_val,
+                                "기타": 0,
+                                "date": date_text,
+                            }
+                        except Exception:
+                            continue
+    except Exception:
+        pass
+    return {"개인": 0, "외국인": 0, "기관": 0, "기타": 0, "date": ""}
+
+
 # ─── Horizontal Candle Chart ──────────────────────────────────────────────────
 
 def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_pct: float = 30.0) -> str:
@@ -109,19 +155,12 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
             color = "#D32F2F" if c_pct >= 0 else "#1976D2"
             high_align = "0" if x_h < 80 else "-100%"
 
-            # --- Investor Volume Logic ---
-            retail_val, foreign_val, inst_val, other_val = 0, 0, 0, 0
-            target_date_str = st.session_state.get('krx_today_str', datetime.today().strftime("%Y%m%d"))
-            
-            try:
-                df_inv = stock.get_market_trading_volume_by_date(target_date_str, target_date_str, ticker)
-                if not df_inv.empty:
-                    if '개인' in df_inv.columns: retail_val = int(df_inv['개인'].iloc[0])
-                    if '외국인합계' in df_inv.columns: foreign_val = int(df_inv['외국인합계'].iloc[0])
-                    if '기관합계' in df_inv.columns: inst_val = int(df_inv['기관합계'].iloc[0])
-                    if '기타법인' in df_inv.columns: other_val = int(df_inv['기타법인'].iloc[0])
-            except Exception:
-                pass
+            # --- Investor Volume Logic (Naver Finance) ---
+            inv = _get_naver_investor_data(str(ticker))
+            retail_val  = inv["개인"]
+            foreign_val = inv["외국인"]
+            inst_val    = inv["기관"]
+            other_val   = inv["기타"]
             
             pos_sum = sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v > 0)
             neg_sum = abs(sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v < 0))
