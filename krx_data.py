@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 import streamlit as st
-import yfinance as yf
 
 # ─── pkg_resources shim ──────────────────────────────────────────────────────
 # pykrx 1.0.51 uses pkg_resources at import time (get_distribution, resource_filename).
@@ -299,9 +298,10 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (FinanceDataReader 병렬 fetch) ─────────────────────────────
-# KRX 직접 API는 시장 전체 OHLCV에 인증(로그인)을 요구(LOGOUT 응답)하므로 사용 불가.
-# FDR DataReader(개별 종목) + ThreadPoolExecutor 병렬 처리로 전체 시장 거래량 랭킹 구성.
+# ─── KRX Rankings (FDR 전 종목 배치 조회) ────────────────────────────────────
+# FDR StockListing으로 KOSPI+KOSDAQ 전 종목 코드를 가져온 뒤,
+# 각 종목의 당일 OHLCV를 병렬로 fetch해 거래량 기준 랭킹을 반환합니다.
+
 
 
 def _get_all_stock_codes() -> list[str]:
@@ -343,6 +343,7 @@ def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
         # 거래량이 0이면 장전/휴장 데이터
         if row.get("거래량", 0) == 0:
             return code, None
+        row["_code"] = code  # 인덱스 설정용
         return code, row
     except Exception:
         return code, None
@@ -410,12 +411,3 @@ def get_krx_ranking() -> pd.DataFrame:
 
     # 5일 모두 데이터 없음
     return pd.DataFrame()
-
-
-
-
-
-
-
-
-
