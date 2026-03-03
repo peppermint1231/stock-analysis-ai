@@ -299,92 +299,115 @@ def clamp_intraday_dates(interval: str, start: datetime, end: datetime) -> datet
 
 
 
-# ─── KRX Rankings (Naver 모바일 API) ─────────────────────────────────────────
+# ─── KRX Rankings (FinanceDataReader) ────────────────────────────────────────
 
-_NAVER_STOCK_API = "https://m.stock.naver.com/api/stocks/top"
-_NAVER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
-    "Referer": "https://m.stock.naver.com/",
-}
-# Naver API 응답 필드명 → 표준 한글 컬럼명
-_NAVER_COL_MAP = {
-    "itemCode":       "_ticker",
-    "openPrice":      "시가",
-    "highPrice":      "고가",
-    "lowPrice":       "저가",
-    "closePrice":     "종가",
-    "accumulatedTradingVolume": "거래량",
-    "accumulatedTradingValue":  "거래대금",
-    "fluctuationsRatio":        "등락률",
-}
+def _fdr_listing() -> pd.DataFrame:
+    """KOSPI+KOSDAQ 전 종목 정보(코드, 이름, 시가총액, 현재가 등)를 FDR로 반환합니다."""
+    import FinanceDataReader as fdr
 
-
-def _fetch_naver_volume_ranking(page_size: int = 100) -> pd.DataFrame:
-    """Naver 모바일 주식 API에서 KOSPI+KOSDAQ 거래량 상위 종목을 가져옵니다."""
     frames: list[pd.DataFrame] = []
-
     for market in ("KOSPI", "KOSDAQ"):
         try:
-            resp = requests.get(
-                _NAVER_STOCK_API,
-                params={"market": market, "type": "VOLUME", "pageSize": str(page_size), "page": "1"},
-                headers=_NAVER_HEADERS,
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # 응답 구조: {"stocks": [...]} 또는 직접 리스트
-            items = data if isinstance(data, list) else data.get("stocks", data.get("items", []))
-            if items:
-                frames.append(pd.DataFrame(items))
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                df = fdr.StockListing(market)
+            if not df.empty:
+                df["_market"] = market
+                frames.append(df)
         except Exception:
             continue
-
     if not frames:
         return pd.DataFrame()
-
-    df = pd.concat(frames, ignore_index=True).rename(columns=_NAVER_COL_MAP)
-
-    # 숫자 컬럼 변환
-    num_cols = ["시가", "고가", "저가", "종가", "거래량", "거래대금", "등락률"]
-    for col in num_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(",", "", regex=False),
-                errors="coerce",
-            )
-
-    if "_ticker" in df.columns:
-        df = df.set_index("_ticker")
-    if "종가" in df.columns:
-        df["현재가"] = df["종가"]
-
-    return df
+    return pd.concat(frames, ignore_index=True)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def get_krx_ranking() -> pd.DataFrame:
-    """Naver 모바일 API로 KOSPI+KOSDAQ 거래량 상위 종목 OHLCV를 반환합니다.
+def _fdr_today_ohlcv(code: str) -> tuple[str, pd.DataFrame]:
+    """단일 종목의 오늘 OHLCV를 FDR로 가져옵니다."""
+    import FinanceDataReader as fdr
 
-    반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
-    장중에는 실시간 데이터, 장 종료 후에는 최종 데이터를 반환합니다.
-    """
+    today = datetime.today().strftime("%Y-%m-%d")
     try:
-        df = _fetch_naver_volume_ranking()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            df = fdr.DataReader(code, today, today)
+        return code, df
+    except Exception:
+        return code, pd.DataFrame()
 
-        if df.empty:
-            st.warning("⚠️ Naver 주식 API에서 데이터를 가져오지 못했습니다.")
-            return pd.DataFrame()
 
-        vol_col = "거래량" if "거래량" in df.columns else None
-        if vol_col is None or df[vol_col].sum() == 0:
-            return pd.DataFrame()
+@st.cache_data(ttl=120, show_spinner=False)
+def get_krx_ranking() -> pd.DataFrame:
+    """FinanceDataReader로 KOSPI+KOSDAQ 거래량 상위 종목 OHLCV를 반환합니다.
 
-        return df
+    1단계: StockListing으로 전 종목 + 시가총액 조회
+    2단계: 시가총액 상위 N개의 당일 OHLCV를 병렬 fetch
+    3단계: 거래량 기준 정렬 반환
+    반환 DataFrame: 인덱스=종목코드, 컬럼=시가/고가/저가/종가/거래량/거래대금/등락률/현재가
+    """
+    import FinanceDataReader as fdr
 
-    except Exception as exc:
-        st.warning(f"⚠️ 랭킹 데이터 조회 실패: {exc}")
+    # 1단계: 전 종목 리스팅
+    listing = _fdr_listing()
+    if listing.empty:
+        st.warning("⚠️ FDR 종목 리스팅 실패")
         return pd.DataFrame()
+
+    # Code 컬럼 확인
+    code_col = next((c for c in ("Code", "Symbol", "code") if c in listing.columns), None)
+    if code_col is None:
+        st.warning(f"⚠️ FDR 종목 코드 컬럼 없음 (컬럼: {list(listing.columns[:8])})")
+        return pd.DataFrame()
+
+    # 시가총액 기준 상위 N개 선정 (없으면 순서대로)
+    marcap_col = next((c for c in ("Marcap", "MarCap", "marcap", "시가총액") if c in listing.columns), None)
+    if marcap_col:
+        listing[marcap_col] = pd.to_numeric(listing[marcap_col], errors="coerce").fillna(0)
+        top_listing = listing.sort_values(marcap_col, ascending=False).head(60)
+    else:
+        top_listing = listing.head(60)
+
+    codes = top_listing[code_col].dropna().astype(str).tolist()
+
+    # 2단계: 병렬로 당일 OHLCV fetch
+    today = datetime.today().strftime("%Y-%m-%d")
+    results: dict[str, pd.DataFrame] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+        futures = {ex.submit(_fdr_today_ohlcv, code): code for code in codes}
+        for fut in concurrent.futures.as_completed(futures, timeout=20):
+            code, df = fut.result()
+            if not df.empty:
+                results[code] = df
+
+    if not results:
+        st.warning("⚠️ 당일 OHLCV 조회 결과 없음 (장전/휴장)")
+        return pd.DataFrame()
+
+    # 3단계: 결과 조합
+    rows = []
+    rename = {"Open": "시가", "High": "고가", "Low": "저가", "Close": "종가", "Volume": "거래량"}
+    for code, df in results.items():
+        row = df.rename(columns=rename).iloc[-1].to_dict()
+        row["_code"] = code
+        rows.append(row)
+
+    result_df = pd.DataFrame(rows).set_index("_code")
+
+    # 등락률 계산 (없으면 시가→종가 근사)
+    if "등락률" not in result_df.columns and "시가" in result_df.columns and "종가" in result_df.columns:
+        시가 = result_df["시가"].replace(0, float("nan"))
+        result_df["등락률"] = ((result_df["종가"] - 시가) / 시가 * 100).round(2)
+
+    # 거래대금 계산 (없으면 종가 × 거래량)
+    if "거래대금" not in result_df.columns and "종가" in result_df.columns and "거래량" in result_df.columns:
+        result_df["거래대금"] = result_df["종가"] * result_df["거래량"]
+
+    if "종가" in result_df.columns:
+        result_df["현재가"] = result_df["종가"]
+
+    # 거래량 0인 행 제거 (장전 데이터)
+    if "거래량" in result_df.columns:
+        result_df = result_df[result_df["거래량"] > 0]
+
+    return result_df.sort_values("거래량", ascending=False) if "거래량" in result_df.columns else result_df
+
 
 
 
