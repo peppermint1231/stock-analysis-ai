@@ -10,6 +10,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from pykrx import stock
 
 
 # ─── Style Helpers ────────────────────────────────────────────────────────────
@@ -108,24 +109,63 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
             color = "#D32F2F" if c_pct >= 0 else "#1976D2"
             high_align = "0" if x_h < 80 else "-100%"
 
+            # --- Investor Volume Logic ---
+            retail_val, foreign_val, inst_val, other_val = 0, 0, 0, 0
+            target_date_str = st.session_state.get('krx_today_str', datetime.today().strftime("%Y%m%d"))
+            
+            try:
+                df_inv = stock.get_market_trading_volume_by_date(target_date_str, target_date_str, ticker)
+                if not df_inv.empty:
+                    if '개인' in df_inv.columns: retail_val = int(df_inv['개인'].iloc[0])
+                    if '외국인합계' in df_inv.columns: foreign_val = int(df_inv['외국인합계'].iloc[0])
+                    if '기관합계' in df_inv.columns: inst_val = int(df_inv['기관합계'].iloc[0])
+                    if '기타법인' in df_inv.columns: other_val = int(df_inv['기타법인'].iloc[0])
+            except Exception:
+                pass
+            
+            pos_sum = sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v > 0)
+            neg_sum = abs(sum(v for v in (retail_val, foreign_val, inst_val, other_val) if v < 0))
+            baseline = max(pos_sum, neg_sum)
+            if baseline <= 0: baseline = 1
+
+            def make_row(label, val):
+                v_pct = (val / baseline) * 100 if baseline > 0 else 0
+                row_color = '#D32F2F' if val > 0 else '#1976D2' if val < 0 else '#495057'
+                s = '+' if val > 0 else ''
+                bw = min(abs(v_pct) / 2, 50)
+                lm = 50 if val > 0 else 50 - bw
+                
+                return f'''
+                <div style="display: flex; align-items: center; justify-content: space-between; height: 32px; margin-bottom: 5px;">
+                  <div style="width: 45px; text-align: left; color: #495057; font-weight: bold; font-size: 11px;">{label}</div>
+                  <div style="flex: 1; position: relative; height: 16px; margin: 0 5px; display: flex; align-items: center;">
+                     <div style="position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; z-index: 1;"></div>
+                     <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #000; z-index: 3;"></div>
+                     <div style="position: absolute; left: {lm}%; width: {bw}%; height: 12px; top: 2px; background: {row_color}; z-index: 2;"></div>
+                  </div>
+                  <div style="width: 55px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2px;">
+                     <div style="font-size: 9px; color: #adb5bd; line-height: 1.2; margin-bottom: 2px;">{val:,.0f}</div>
+                     <div style="color: {row_color}; font-weight: bold; font-size: 11px; line-height: 1.2;">{s}{v_pct:.0f}%</div>
+                  </div>
+                </div>
+                '''
+
+            investor_rows = make_row('개인', retail_val) + make_row('외국인', foreign_val) + make_row('기관', inst_val) + make_row('기타', other_val)
+
+            vol = float(df.loc[ticker, "거래량"]) if "거래량" in df.columns else 0
+            vol_html = f'<div style="font-size:12px;color:#868e96;font-weight:normal;">주 {int(vol):,}</div>' if vol > 0 else ""
+
             html += f"""
 <div style="border:1px solid #e2e8f0;border-radius:12px;padding:20px 15px;background:white;
-box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:15px;">
-  <div>    
+box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:15px; flex-wrap: nowrap;">
+  <div style="flex:1 1 120px; min-width: 0;">    
     <div style="margin-bottom:25px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;align-items:center;">
       <div>
         {name} <span style="font-size:13px;color:gray;font-weight:normal;">
           ({close_p:,.0f}원 <span style="color:{color};">{c_pct:+.2f}%</span>)
         </span>
       </div>
-      """
-
-            # Add volume if it exists
-            vol = float(df.loc[ticker, "거래량"]) if "거래량" in df.columns else 0
-            if vol > 0:
-                html += f'<div style="font-size:12px;color:#868e96;font-weight:normal;">주 {int(vol):,}</div>'
-
-            html += """
+      {vol_html}
     </div>
     <div style="position:relative;width:100%;height:40px;background-color:#f8f9fa;
       border-radius:4px;border:1px solid #e9ecef;">
@@ -139,6 +179,9 @@ box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:
       <div style="position:absolute;left:{x_l}%;top:62px;font-size:11px;color:#6c757d;transform:translateX(-100%);padding-right:6px;text-align:right;line-height:1.2;">저 {low_p:,.0f}<br>({_pct(low_p):+.1f}%)</div>
       <div style="position:absolute;left:{x_h}%;top:62px;font-size:11px;color:#6c757d;transform:translateX({high_align});padding-left:6px;line-height:1.2;">고 {high_p:,.0f}<br>({_pct(high_p):+.1f}%)</div>
     </div>
+  </div>
+  <div style="flex: 0 0 165px; display: flex; flex-direction: column; justify-content: center; font-size: 13px; margin-top: 5px; min-width: 0;">
+    {investor_rows}
   </div>
 </div>"""
         except Exception:
