@@ -312,6 +312,8 @@ def get_krx_ranking() -> pd.DataFrame:
     """
     from pykrx import stock as pykrx_stock
 
+    errs: list[str] = []
+
     for delta in range(5):
         check_date = datetime.today() - timedelta(days=delta)
         date_str = check_date.strftime("%Y%m%d")
@@ -323,7 +325,10 @@ def get_krx_ranking() -> pd.DataFrame:
                     df_m = pykrx_stock.get_market_ohlcv_by_ticker(date_str, market=market)
                 if df_m is not None and not df_m.empty:
                     frames.append(df_m)
-            except Exception:
+                else:
+                    errs.append(f"{date_str} {market}: 빈 DataFrame 반환")
+            except Exception as exc:
+                errs.append(f"{date_str} {market}: {type(exc).__name__}: {exc}")
                 continue
 
         if not frames:
@@ -340,6 +345,7 @@ def get_krx_ranking() -> pd.DataFrame:
             df = df[df["거래량"] > 0]
 
         if df.empty:
+            errs.append(f"{date_str}: 거래량>0 행 없음 (컬럼={list(df.columns)})")
             continue
 
         # 등락률이 없으면 시가→종가 근사
@@ -356,4 +362,7 @@ def get_krx_ranking() -> pd.DataFrame:
 
         return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
 
+    # 모두 실패 — 수집된 에러를 화면에 표시
+    if errs:
+        st.warning("⚠️ pykrx 랭킹 조회 실패:\n" + "\n".join(f"- {e}" for e in errs))
     return pd.DataFrame()
