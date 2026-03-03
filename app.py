@@ -209,6 +209,39 @@ def render_tradingview_widget(symbol: str, interval: str = "D") -> None:
         height=500,
     )
 
+import json as _json
+
+def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str) -> None:
+    st.caption("🚀 버튼 클릭 한 번으로 프롬프트 복사 + AI 채팅 열기!")
+    
+    def _copy_btn(label: str, text: str, url: str, bg: str, btn_id: str) -> str:
+        t_json = _json.dumps(text)
+        return f"""
+        <button id="{btn_id}" style="background:{bg};color:white;border:none;padding:10px 0;width:100%;
+        border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">{label}</button>
+        <script>
+        document.getElementById('{btn_id}').addEventListener('click', function() {{
+            var txt = {t_json};
+            if(navigator.clipboard && window.isSecureContext) {{
+                navigator.clipboard.writeText(txt).then(()=>window.open('{url}','_blank')).catch(()=>window.open('{url}','_blank'));
+            }} else {{
+                var ta = document.createElement('textarea');
+                ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta); ta.focus(); ta.select();
+                try {{ document.execCommand('copy'); }} catch(e) {{}}
+                document.body.removeChild(ta);
+                window.open('{url}','_blank');
+            }}
+        }});
+        </script>
+        """
+
+    lb1, lb2, _ = st.columns([1, 1, 3])
+    with lb1:
+        components.html(_copy_btn("📋 복사 후 ChatGPT 열기", gpt_prompt, "https://chatgpt.com/", "#10a37f", f"bgpt_{suffix}"), height=50)
+    with lb2:
+        components.html(_copy_btn("📋 복사 후 Gemini 열기", gem_prompt, "https://gemini.google.com/", "#1a73e8", f"bgem_{suffix}"), height=50)
+
 
 @st.fragment
 def render_ai_analysis_content(ticker, name, market, currency, interval_label, display_df, key_suffix):
@@ -262,7 +295,8 @@ def render_ai_analysis_content(ticker, name, market, currency, interval_label, d
 
     st.divider()
     st.subheader("📋 수동 분석용 프롬프트 (Backup)")
-    st.info("아래 코드를 복사하여 AI 서비스에 붙여넣으세요.")
+    render_copy_buttons(gpt_p, gem_p, f"single_{ticker}_{key_suffix}")
+    st.info("아래 코드를 복사하여 AI 서비스에 직접 붙여넣으셔도 됩니다.")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("### 🟢 ChatGPT Plus 용")
@@ -275,7 +309,6 @@ def render_ai_analysis_content(ticker, name, market, currency, interval_label, d
 @st.fragment
 def render_multi_ai_content(code, name, market, currency, dfs, news):
     """멀티 타임프레임 AI 분석 리포트를 렌더링합니다."""
-    import json as _json
 
     prefix = "kr" if currency == "KRW" else "us"
     h_key = f"{prefix}_multi_{code}_holding"
@@ -324,7 +357,8 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
 
     st.divider()
     st.subheader("📋 수동 종합 분석용 프롬프트 (Backup)")
-    st.info("아래 코드를 복사하여 AI 서비스에 붙여넣으세요.")
+    render_copy_buttons(gpt_multi_p, gem_multi_p, f"multi_{code}")
+    st.info("아래 코드를 복사하여 AI 서비스에 직접 붙여넣으셔도 됩니다.")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("### 🟢 ChatGPT Plus 용")
@@ -332,28 +366,6 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
     with c2:
         st.markdown("### 🔵 Gemini (Google One) 용")
         st.code(gem_multi_p, language=None)
-
-    def _copy_btn(label: str, text: str, url: str, bg: str) -> str:
-        t_json = _json.dumps(text)
-        return f"""<button onclick="(function(){{
-            var txt={t_json};
-            if(navigator.clipboard&&window.isSecureContext){{
-                navigator.clipboard.writeText(txt).then(()=>window.open('{url}','_blank')).catch(()=>window.open('{url}','_blank'));
-            }}else{{
-                var ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';
-                document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);
-                window.open('{url}','_blank');
-            }}
-        }})();" style="background:{bg};color:white;border:none;padding:10px 0;width:100%;
-        border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">{label}</button>"""
-
-    st.divider()
-    st.caption("🚀 버튼 클릭 한 번으로 프롬프트 복사 + AI 채팅 열기!")
-    lb1, lb2, _ = st.columns([1, 1, 3])
-    with lb1:
-        components.html(_copy_btn("📋 복사 후 ChatGPT 열기", gpt_multi_p, "https://chatgpt.com/", "#10a37f"), height=50)
-    with lb2:
-        components.html(_copy_btn("📋 복사 후 Gemini 열기", gem_multi_p, "https://gemini.google.com/", "#1a73e8"), height=50)
 
 
 def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label, ranks=None, key_suffix="", selected_data=None):
