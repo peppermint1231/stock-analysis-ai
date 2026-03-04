@@ -239,6 +239,15 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
         if not df.empty:
             df = _normalize_ohlcv(df)
 
+            if interval in ("일/주/월/연봉 종합분석", "일봉 (Daily)"):
+                from datetime import datetime as dt, timedelta, timezone
+                kst = timezone(timedelta(hours=9))
+                now_kst = dt.now(tz=kst).replace(tzinfo=None)
+                if df.index[-1].date() == now_kst.date():
+                    idx = df.index.tolist()
+                    idx[-1] = now_kst
+                    df.index = pd.DatetimeIndex(idx)
+
             if m_name == "KRX":
                 try:
                     kospi = fdr.StockListing("KOSPI")
