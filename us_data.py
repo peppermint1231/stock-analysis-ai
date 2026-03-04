@@ -107,12 +107,17 @@ def append_live_minute_data(df: pd.DataFrame, ticker: str, m_name: str | None = 
 
         df_filtered = df[df.index.date != today_date].copy() if hasattr(df.index, "date") else df.copy()
 
+        prev_close = df_filtered.iloc[-1]["Close"] if not df_filtered.empty else float("nan")
+        new_close = float(last_row["Close"].iloc[0])
+        change_val = (new_close / prev_close - 1) if prev_close else float("nan")
+
         new_row = {
-            "Open": float(last_row["Open"].iloc[0]),
-            "High": float(last_row["High"].iloc[0]),
-            "Low": float(last_row["Low"].iloc[0]),
-            "Close": float(last_row["Close"].iloc[0]),
+            "Open": float(live_df["Open"].iloc[0]),
+            "High": float(live_df["High"].max()),
+            "Low": float(live_df["Low"].min()),
+            "Close": new_close,
             "Volume": float(live_df["Volume"].sum()),
+            "Change": change_val,
         }
         for c in df_filtered.columns:
             if c not in new_row:
