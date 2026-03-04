@@ -239,10 +239,6 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
         if not df.empty:
             df = _normalize_ohlcv(df)
 
-            if interval in ("일/주/월/연봉 종합분석", "일봉 (Daily)"):
-                from us_data import append_live_minute_data
-                df = append_live_minute_data(df, code, m_name)
-
             if m_name == "KRX":
                 try:
                     kospi = fdr.StockListing("KOSPI")
