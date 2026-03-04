@@ -167,6 +167,50 @@ def _render_sidebar() -> None:
         st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
 
     st.sidebar.markdown("---")
+    with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
+        st.write("KRX 데이터 조회가 안 될 경우 쿠키를 갱신하세요.")
+        if st.button("🚀 로컬 브라우저에서 쿠키 자동 추출", help="Antigravity 브라우저가 data.krx.co.kr에 로그인된 상태여야 합니다."):
+            import subprocess
+            with st.spinner("쿠키 추출 중..."):
+                try:
+                    res = subprocess.run(["python", "get_browser_cookies.py"], capture_output=True, text=True)
+                    if "쿠키 저장 완료" in res.stdout:
+                        st.success("✅ 로컬 쿠키 갱신 성공!")
+                        st.cache_data.clear()
+                        st.cache_resource.clear()
+                    else:
+                        st.error("❌ 추출 실패. 브라우저 창을 확인하세요.")
+                        st.code(res.stdout)
+                except Exception as e:
+                    st.error(f"오류: {e}")
+                    
+        st.markdown("---")
+        st.markdown("💡 **JSESSIONID 쉽게 복사하는 법** (PC 브라우저)")
+        st.info("1. 브라우저에서 [KRX 데이터 포털](https://data.krx.co.kr) 접속 후 로그인\n2. `F12`를 눌러 **개발자 도구 (Console)** 열기\n3. 아래 코드를 붙여넣고 엔터 치면 클립보드에 자동 복사됩니다!")
+        st.code("copy(document.cookie.split('; ').find(row => row.startsWith('JSESSIONID=')).split('=')[1]);", language="javascript")
+        
+        new_jsid = st.text_input("위에서 복사한 JSESSIONID 붙여넣기", type="password")
+        if st.button("수동 쿠키 저장"):
+            if new_jsid:
+                import json
+                from pathlib import Path
+                cookie_file = Path("krx_cookies.json")
+                try:
+                    if cookie_file.exists():
+                        cookies = json.loads(cookie_file.read_text(encoding="utf-8"))
+                    else:
+                        cookies = {}
+                except Exception:
+                    cookies = {}
+                cookies["JSESSIONID"] = new_jsid
+                cookie_file.write_text(json.dumps(cookies, ensure_ascii=False), encoding="utf-8")
+                st.success("✅ JSESSIONID 수동 저장 완료!")
+                st.cache_data.clear()
+                st.cache_resource.clear()
+            else:
+                st.warning("JSESSIONID 값을 입력하세요.")
+
+    st.sidebar.markdown("---")
     st.sidebar.subheader("💎 원자재 & 코인")
     for name, (usd, diff, pct, krw, unit) in data.get("commodities", {}).items():
         label = f"{name} {unit}".strip()

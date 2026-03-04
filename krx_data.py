@@ -31,6 +31,15 @@ except ImportError:
     _pkg.get_distribution = lambda name: type("Dist", (), {"version": "0.0.0"})()  # type: ignore[assignment]
     sys.modules["pkg_resources"] = _pkg
 
+# ─── pykrx Session Patch (KRX API 인증 요구 대응, Issue #276/#277) ─────────────
+# KRX가 2026-02-27부터 JSESSIONID 쿠키 인증을 요구하도록 API를 변경했습니다.
+# pykrx의 Post/Get.read()를 인증 세션으로 교체하여 빈 값 반환 문제를 해결합니다.
+try:
+    from krx_session import ensure_pykrx_patched
+    ensure_pykrx_patched()
+except Exception as _patch_err:
+    print(f"[krx_data] pykrx patch 건너뜀: {_patch_err}")
+
 # ─── Constants ───────────────────────────────────────────────────────────────
 _KRX_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "krx_mapping_cache.json")
 
@@ -61,7 +70,7 @@ _INTRADAY_MAX_DAYS: dict[str, int] = {
 # ─── Ticker Mapping ───────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=86400, show_spinner="KRX 종목 마스터 로딩 중...")
-def get_krx_mapping() -> dict[str, str]:
+def get_krx_mapping(cache_bust: int = 2) -> dict[str, str]:
     """코드→종목명 매핑을 반환합니다.
 
     순서: KRX → KRX-DESC → KOSPI/KOSDAQ 병합 → 로컬 JSON 캐시
@@ -281,8 +290,8 @@ def _fetch_one_stock_ohlcv(code: str, date_str: str) -> tuple[str, dict | None]:
         return code, None
 
 
-def _get_top_tickers_from_naver() -> dict[str, str]:
-    """네이버 금융 거래량/거래대금 상위 페이지를 스크래핑하여 대상 종목 코드 목록만 반환합니다.
+def _get_top_tickers_from_naver() -> dict[str, dict]:
+    """네이버 금융 거래량/거래대금 상위 페이지를 스크래핑하여 대상 종목 코드 및 실시간 시세 반환합니다.
 
     - KOSPI 거래량/거래대금 (각 최대 100개)
     - KOSDAQ 거래량/거래대금 (각 최대 100개)
@@ -302,17 +311,38 @@ def _get_top_tickers_from_naver() -> dict[str, str]:
         try:
             res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, "html.parser")
-            # a 태그 중 href가 code= 로 끝나는 종목 링크 추출
-            links = soup.select("table.type_2 a.tltle")
-            for a in links:
+            # a 태그 중 href가 code= 로 끝나는 종목 링크 및 해당 tr 추출
+            rows = soup.select("table.type_2 tr")
+            for row in rows:
+                a = row.find("a", class_="tltle")
+                if not a: continue
+                
                 href = a.get("href", "")
                 if "code=" in href:
                     code = href.split("code=")[-1]
                     name = a.text.strip()
-                    # ETF/ETN (통상 5~6자리지만 숫자로만 구성됨), 
-                    # 원한다면 여기서 단순 필터링 가능하지만 기존 방식처럼 일단 다 수집
+                    # ETF/ETN (통상 5~6자리지만 숫자로만 구성됨)
                     if len(code) == 6 and code.isdigit():
-                        tickers[code] = name
+                        tds = row.find_all("td", class_="number")
+                        if len(tds) >= 5:
+                            try:
+                                price = float(tds[0].text.strip().replace(",", ""))
+                                pct_str = tds[2].text.strip().replace("%", "").strip()
+                                pct = float(pct_str) if pct_str and pct_str != "0.00" else 0.0
+                                vol = float(tds[3].text.strip().replace(",", ""))
+                                val = float(tds[4].text.strip().replace(",", "")) * 1_000_000 # 백만원 단위
+                                
+                                tickers[code] = {
+                                    "종목명": name,
+                                    "현재가_live": price,
+                                    "등락률_live": pct,
+                                    "거래량_live": vol,
+                                    "거래대금_live": val
+                                }
+                            except ValueError:
+                                tickers[code] = {"종목명": name}
+                        else:
+                            tickers[code] = {"종목명": name}
         except Exception:
             continue
             
@@ -332,7 +362,7 @@ def get_krx_ranking() -> pd.DataFrame:
         mapping = get_krx_mapping()
         if mapping:
             codes = list(mapping.keys())[:200]
-            codes_dict = {c: mapping[c] for c in codes}
+            codes_dict = {c: {"종목명": mapping[c]} for c in codes}
         else:
             st.warning("⚠️ 실시간 랭킹 종목 목록을 가져오는데 실패했습니다.")
             return pd.DataFrame()
@@ -374,7 +404,36 @@ def get_krx_ranking() -> pd.DataFrame:
         if df.empty:
             continue
 
-        # 등락률 및 거래대금 계산
+        # 실시간 네이버 시세(Live Price) 강제 덮어쓰기
+        if "_code" in df.columns:
+            def _get_live(code, key):
+                val = codes_dict.get(code, {}).get(key)
+                return val if val is not None else float("nan")
+                
+            df["현재가_live"] = df["_code"].map(lambda x: _get_live(x, "현재가_live"))
+            df["등락률_live"] = df["_code"].map(lambda x: _get_live(x, "등락률_live"))
+            df["거래량_live"] = df["_code"].map(lambda x: _get_live(x, "거래량_live"))
+            df["거래대금_live"] = df["_code"].map(lambda x: _get_live(x, "거래대금_live"))
+            
+            mask = df["현재가_live"].notna()
+            if "종가" in df.columns:
+                df.loc[mask, "종가"] = df.loc[mask, "현재가_live"]
+            if "현재가" in df.columns:
+                df.loc[mask, "현재가"] = df.loc[mask, "현재가_live"]
+            if "등락률" in df.columns:
+                df.loc[mask, "등락률"] = df.loc[mask, "등락률_live"]
+            if "거래량" in df.columns:
+                df.loc[mask, "거래량"] = df.loc[mask, "거래량_live"]
+            if "거래대금" in df.columns:
+                df.loc[mask, "거래대금"] = df.loc[mask, "거래대금_live"]
+                
+            # 고가, 저가가 실시간 현재가 범위를 벗어났으면 보정
+            if "고가" in df.columns:
+                df.loc[mask, "고가"] = df[["고가", "현재가_live"]].max(axis=1)
+            if "저가" in df.columns:
+                df.loc[mask, "저가"] = df[["저가", "현재가_live"]].min(axis=1)
+
+        # 등락률 및 거래대금(위에서 안 덮어씌워진 경우) 추가 계산
         if "등락률" not in df.columns and "시가" in df.columns and "종가" in df.columns:
             s = df["시가"].replace(0, float("nan"))
             df["등락률"] = ((df["종가"] - s) / s * 100).round(2)
@@ -382,10 +441,10 @@ def get_krx_ranking() -> pd.DataFrame:
         if "거래대금" not in df.columns and "종가" in df.columns and "거래량" in df.columns:
             df["거래대금"] = df["종가"] * df["거래량"]
 
-        if "종가" in df.columns:
+        if "종가" in df.columns and "현재가" not in df.columns:
             df["현재가"] = df["종가"]
 
-        df["종목명"] = df["_code"].map(codes_dict)
+        df["종목명"] = df["_code"].map(lambda x: codes_dict.get(x, {}).get("종목명"))
 
         if "_code" in df.columns:
             df = df.set_index("_code")
