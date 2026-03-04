@@ -182,8 +182,13 @@ def _render_sidebar() -> None:
 _render_sidebar()
 
 # ─── Title & Tabs ─────────────────────────────────────────────────────────────
-st.title("📈 AI 주식 기술적 분석 (v2.2)")
-tab_kr, tab_us = st.tabs(["🇰🇷 국내 주식 (KRX)", "🇺🇸 해외 주식 (US)"])
+st.title("📈 AI 주식 기술적 분석 (v2.3)")
+tab_kr_indie, tab_us_indie, tab_kr_market, tab_us_market = st.tabs([
+    "KR 국내 주식 개별 분석",
+    "US 해외 주식 개별 분석",
+    "🇰🇷 국내 주식 (KRX)",
+    "🇺🇸 해외 주식 (US)"
+])
 
 
 # ─── Shared UI Components ─────────────────────────────────────────────────────
@@ -602,18 +607,19 @@ def _push_recent(key: str, value: str, storage_key: str) -> None:
     localS.setItem(storage_key, st.session_state[key])
 
 
-# ─── KRX Tab ─────────────────────────────────────────────────────────────────
-with tab_kr:
-    st.header("🇰🇷 한국거래소 (KRX)")
+# ─── KRX Tabs ─────────────────────────────────────────────────────────────────
+
+# Ticker mapping
+ticker_to_name = get_krx_mapping()
+name_to_ticker, sorted_names = build_name_to_ticker(ticker_to_name)
+
+with tab_kr_market:
+    st.header("🇰🇷 한국거래소 (KRX) 시장 동향")
 
     krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
     st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
 
     today_str = today_kst().strftime("%Y%m%d")
-
-    # Ticker mapping
-    ticker_to_name = get_krx_mapping()
-    name_to_ticker, sorted_names = build_name_to_ticker(ticker_to_name)
 
     # Ranking section
     DISPLAY_COLS = ["종목명", "종가", "시가", "고가", "저가", "52주최고", "등락률", "거래량", "거래대금", "is_breakout"]
@@ -624,9 +630,9 @@ with tab_kr:
     except Exception as e:
         st.warning(f"랭킹 데이터를 가져오는데 실패했습니다: {e}\n\n```\n{traceback.format_exc()}\n```")
 
-    # Individual stock analysis
-    st.write("---")
-    st.subheader("📊 개별 종목 분석")
+
+with tab_kr_indie:
+    st.header("KR 국내 주식 개별 분석")
 
     default_index = 0
     if name_to_ticker:
@@ -703,9 +709,14 @@ with tab_kr:
             st.error(f"오류 발생: {e}\n```\n{traceback.format_exc()}\n```")
 
 
-# ─── US Tab ────────────────────────────────────────────────────────────────────
-with tab_us:
-    st.header("🇺🇸 미국 주식 (US Stock)")
+# ─── US Tabs ────────────────────────────────────────────────────────────────────
+
+us_ticker_map = get_sp500_mapping()
+us_name_to_ticker = {f"{n} ({t})": t for t, n in us_ticker_map.items()}
+us_sorted_names = sorted(us_name_to_ticker.keys())
+
+with tab_us_market:
+    st.header("🇺🇸 미국 주식 (US Stock) 시장 동향")
 
     us_time_str = st.session_state.get("us_time", now_kst().strftime("%m/%d %H:%M"))
     st.subheader(f"🔥 거래량 상위 Top 10 (Most Active) ({us_time_str})")
@@ -765,11 +776,8 @@ with tab_us:
     else:
         st.info("랭킹 데이터를 불러올 수 없습니다.")
 
-    st.write("---")
-
-    us_ticker_map = get_sp500_mapping()
-    us_name_to_ticker = {f"{n} ({t})": t for t, n in us_ticker_map.items()}
-    us_sorted_names = sorted(us_name_to_ticker.keys())
+with tab_us_indie:
+    st.header("US 해외 주식 개별 분석")
 
     default_idx = 0
     apple = [k for k in us_sorted_names if "Apple" in k]
