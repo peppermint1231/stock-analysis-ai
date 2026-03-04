@@ -105,23 +105,11 @@ def build_krx_session() -> requests.Session:
     """가능한 방법으로 KRX 인증 세션을 빌드합니다.
 
     우선순위:
-        1. st.secrets["krx"]["jsessionid"] — Cloud 배포 시 직접 주입
-        2. krx_cookies.json 로컬 파일
-        3. st.secrets["krx"] 자격증명으로 Playwright 로그인
-        4. 익명 세션 (fallback)
+        1. krx_cookies.json 로컬 파일 (앱 UI에서 수동/자동 저장)
+        2. st.secrets["krx"] 자격증명으로 Playwright 로그인
+        3. 익명 세션 (fallback)
     """
-    # 0. st.secrets에 jsessionid 직접 저장된 경우 (Streamlit Cloud 권장 방법)
-    try:
-        jsid = st.secrets["krx"].get("jsessionid", "")
-        if jsid:
-            session = requests.Session()
-            session.cookies.set("JSESSIONID", jsid, domain="data.krx.co.kr")
-            print("[KRX session] st.secrets JSESSIONID 로드 완료")
-            return session
-    except Exception:
-        pass
-
-    # 1. 로컬 쿠키 파일
+    # 1. 로컬 쿠키 파일 (앱 내 UI에서 최우선으로 저장한 쿠키)
     if os.path.exists(_COOKIE_FILE):
         try:
             with open(_COOKIE_FILE, "r", encoding="utf-8") as f:

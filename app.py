@@ -193,7 +193,7 @@ def _render_sidebar() -> None:
             "4. 우측 표에서 이름이 **`JSESSIONID`** 인 항목을 찾아 **Value(값)** 부분을 더블클릭 후 복사(Ctrl+C)합니다."
         )
         
-        new_jsid = st.text_input("복사한 JSESSIONID 붙여넣기", type="password")
+        new_jsid = st.text_input("복사한 JSESSIONID 붙여넣기")
         if st.button("수동 쿠키 저장"):
             if new_jsid:
                 import json
