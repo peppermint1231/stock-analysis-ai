@@ -349,10 +349,16 @@ def render_krx_ranking(
     val_col = "거래대금" if "거래대금" in all_df.columns else None
 
     exclude_etf = st.toggle("🚫 ETF/ETN 제외 (순수 주식만 랭킹 보기)", value=True, key="krx_exclude_etf")
-    if exclude_etf and ticker_to_name:
-        # ticker_to_name은 기존 get_krx_mapping 캐시(순수 주식만 존재)를 기반으로 하므로,
-        # 이 목록에 없는 KODEX, TIGER 등 ETF/ETN 종목을 깔끔하게 필터링할 수 있습니다.
-        all_df = all_df[all_df.index.isin(ticker_to_name.keys())]
+    if exclude_etf:
+        if ticker_to_name:
+            # ticker_to_name은 기존 get_krx_mapping 캐시(순수 주식만 존재)를 기반으로 하므로,
+            # 이 목록에 없는 KODEX, TIGER 등 ETF/ETN 종목을 깔끔하게 필터링할 수 있습니다.
+            all_df = all_df[all_df.index.isin(ticker_to_name.keys())]
+        elif "종목명" in all_df.columns:
+            # 매핑 실패 시 종목명 기반 폴백 필터링 (주요 ETF/ETN 키워드 제외)
+            etf_keywords = ["KODEX", "TIGER", "KBSTAR", "KINDEX", "ACE", "ARIRANG", "KOSEF", "HANARO", "SOL", "TIMEFOLIO", "WOORI", "히어로즈", "마이티", "ETN", "인버스", "레버리지", "스팩", "선물"]
+            pattern = "|".join(etf_keywords)
+            all_df = all_df[~all_df["종목명"].str.contains(pattern, case=False, na=False)]
 
     # 거래량 Top 10
     top_vol = all_df.sort_values(vol_col, ascending=False).head(10).copy()

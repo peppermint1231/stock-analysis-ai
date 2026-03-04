@@ -32,7 +32,7 @@ except ImportError:
     sys.modules["pkg_resources"] = _pkg
 
 # ─── Constants ───────────────────────────────────────────────────────────────
-_KRX_CACHE_FILE = "krx_mapping_cache.json"
+_KRX_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "krx_mapping_cache.json")
 
 INTRADAY_INTERVALS = [
     "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)",
