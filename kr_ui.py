@@ -349,7 +349,7 @@ def render_krx_ranking(
     val_col = "거래대금" if "거래대금" in all_df.columns else None
 
     exclude_etf = st.toggle("🚫 ETF/ETN 제외 (순수 주식만 랭킹 보기)", value=True, key="krx_exclude_etf")
-    if exclude_etf:
+    if exclude_etf and ticker_to_name:
         # ticker_to_name은 기존 get_krx_mapping 캐시(순수 주식만 존재)를 기반으로 하므로,
         # 이 목록에 없는 KODEX, TIGER 등 ETF/ETN 종목을 깔끔하게 필터링할 수 있습니다.
         all_df = all_df[all_df.index.isin(ticker_to_name.keys())]
