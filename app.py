@@ -185,11 +185,15 @@ def _render_sidebar() -> None:
                     st.error(f"오류: {e}")
                     
         st.markdown("---")
-        st.markdown("💡 **JSESSIONID 쉽게 복사하는 법** (PC 브라우저)")
-        st.info("1. 브라우저에서 [KRX 데이터 포털](https://data.krx.co.kr) 접속 후 로그인\n2. `F12`를 눌러 **개발자 도구 (Console)** 열기\n3. 아래 코드를 붙여넣고 엔터 치면 클립보드에 자동 복사됩니다!")
-        st.code("copy(document.cookie.split('; ').find(row => row.startsWith('JSESSIONID=')).split('=')[1]);", language="javascript")
+        st.markdown("💡 **JSESSIONID 수동 복사하는 법** (PC 브라우저)")
+        st.info(
+            "1. PC에서 [KRX 웹사이트](https://data.krx.co.kr) 접속 후 로그인합니다.\n"
+            "2. 키보드 `F12`를 눌러 개발자 도구를 열고 상단의 **Application (애플리케이션)** 탭으로 이동합니다.\n"
+            "3. 좌측 메뉴에서 **Storage > Cookies > https://data.krx.co.kr** 를 클릭합니다.\n"
+            "4. 우측 표에서 이름이 **`JSESSIONID`** 인 항목을 찾아 **Value(값)** 부분을 더블클릭 후 복사(Ctrl+C)합니다."
+        )
         
-        new_jsid = st.text_input("위에서 복사한 JSESSIONID 붙여넣기", type="password")
+        new_jsid = st.text_input("복사한 JSESSIONID 붙여넣기", type="password")
         if st.button("수동 쿠키 저장"):
             if new_jsid:
                 import json
