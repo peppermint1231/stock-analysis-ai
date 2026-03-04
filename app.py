@@ -75,7 +75,7 @@ st.markdown(
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=1)
+@st.cache_data(ttl=300)
 def get_major_indices() -> dict:
     indices = {
         "🇺🇸 S&P 500": "^GSPC",
@@ -146,7 +146,12 @@ _SIDEBAR_URLS = {
 
 def _render_sidebar() -> None:
     if st.sidebar.button("새로고침 (Refresh)"):
-        st.cache_data.clear()
+        from krx_data import fetch_krx_data
+        from us_data import fetch_us_data, get_us_most_active
+        get_major_indices.clear()
+        fetch_krx_data.clear()
+        fetch_us_data.clear()
+        get_us_most_active.clear()
         for key in ("krx_market_df", "krx_time", "us_top_df", "us_time"):
             st.session_state.pop(key, None)
 

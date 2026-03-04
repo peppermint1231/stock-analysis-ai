@@ -92,6 +92,18 @@ def get_krx_mapping(cache_bust: int = 2) -> dict[str, str]:
             return dict(zip(df["Code"], df["Name"]))
         return {}
 
+    # 로컬 JSON 캐시가 24시간 이내로 최신이면 네트워크 송수신 없이 즉시 반환 (속도 극대화)
+    try:
+        if os.path.exists(_KRX_CACHE_FILE):
+            import time
+            if (time.time() - os.path.getmtime(_KRX_CACHE_FILE)) < 86400:
+                with open(_KRX_CACHE_FILE, "r", encoding="utf-8") as f:
+                    mapping = json.load(f)
+                if mapping:
+                    return mapping
+    except Exception:
+        pass
+
     for market in ("KRX", "KRX-DESC"):
         try:
             mapping = _try_fdr(market)
