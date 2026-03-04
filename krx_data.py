@@ -199,7 +199,7 @@ def _to_kst(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list) -> tuple[pd.DataFrame, str]:
     """KRX 종목 OHLCV 데이터를 반환합니다. (ticker_code, market_name)"""
     import FinanceDataReader as fdr
