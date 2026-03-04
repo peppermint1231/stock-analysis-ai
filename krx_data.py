@@ -10,11 +10,12 @@ import io
 import json
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
 import streamlit as st
+import yfinance as yf
 from bs4 import BeautifulSoup
 # ─── pkg_resources shim (Streamlit Cloud uv 환경 버그 우회용) ──────────────────
 # pykrx 1.2.x 에서는 여전히 __init__.py 에서 pkg_resources를 import 합니다.
@@ -51,9 +52,9 @@ INTRADAY_INTERVALS = [
 _INTERVAL_MAP: dict[str, str] = {
     "1시간 (60 Minute)": "60m",
     "30분 (30 Minute)": "30m",
-    "10분 (10 Minute)": "10m",
+    "10분 (10 Minute)": "15m",  # yfinance는 10m을 지원하지 않으므로 가장 가까운 15m으로 우회
     "5분 (5 Minute)": "5m",
-    "3분 (3 Minute)": "3m",
+    "3분 (3 Minute)": "2m",   # yfinance는 3m을 지원하지 않으므로 가장 가까운 2m으로 우회
     "1분 (1 Minute)": "1m",
 }
 
@@ -61,9 +62,9 @@ _INTRADAY_MAX_DAYS: dict[str, int] = {
     "1시간 (60 Minute)": 30,
     "30분 (30 Minute)": 14,
     "10분 (10 Minute)": 7,
-    "5분 (5 Minute)": 4,
-    "3분 (3 Minute)": 2,
-    "1분 (1 Minute)": 1,
+    "5분 (5 Minute)": 5,
+    "3분 (3 Minute)": 5,
+    "1분 (1 Minute)": 5,
 }
 
 
@@ -252,9 +253,8 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
             df = _normalize_ohlcv(df)
 
             if interval in ("일/주/월/연봉 종합분석", "일봉 (Daily)"):
-                from datetime import datetime as dt, timedelta, timezone
                 kst = timezone(timedelta(hours=9))
-                now_kst = dt.now(tz=kst).replace(tzinfo=None)
+                now_kst = datetime.now(tz=kst).replace(tzinfo=None)
                 if df.index[-1].date() == now_kst.date():
                     idx = df.index.tolist()
                     idx[-1] = now_kst
@@ -269,7 +269,8 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
 
         return df, m_name
 
-    except Exception:
+    except Exception as e:
+        import traceback; traceback.print_exc()
         return pd.DataFrame(), "KRX"
 
 

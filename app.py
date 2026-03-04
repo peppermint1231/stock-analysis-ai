@@ -885,6 +885,7 @@ with tab_us_indie:
 
         with st.spinner("미국 주식 데이터 가져오는 중..."):
             t0 = time.time()
+            start_date_us = clamp_intraday_dates(interval_us_sel, start_date_us, end_date_us)
             df_us = fetch_us_data(us_ticker, start_date_us.strftime("%Y%m%d"), end_date_us.strftime("%Y%m%d"), interval_us_sel)
 
         if df_us.empty:

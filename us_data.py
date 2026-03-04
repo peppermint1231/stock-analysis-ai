@@ -21,9 +21,9 @@ INTRADAY_INTERVALS = [
 _YF_INTERVAL_MAP: dict[str, str] = {
     "1시간 (60 Minute)": "60m",
     "30분 (30 Minute)": "30m",
-    "10분 (10 Minute)": "10m",
+    "10분 (10 Minute)": "15m",  # yfinance는 10m 지원 불가 -> 15m 우회
     "5분 (5 Minute)": "5m",
-    "3분 (3 Minute)": "3m",
+    "3분 (3 Minute)": "2m",   # yfinance는 3m 지원 불가 -> 2m 우회
     "1분 (1 Minute)": "1m",
 }
 
