@@ -16,8 +16,9 @@ from streamlit_local_storage import LocalStorage
 
 from ai_client import get_gemini_response
 from date_fragment import date_selector_fragment
-from kr_ui import render_krx_ranking
-from krx_data import build_name_to_ticker, clamp_intraday_dates, fetch_krx_data, get_krx_mapping
+from kis_ws import get_kis_client, get_kis_config
+from kr_ui import render_krx_nxt_ranking, render_krx_ranking, render_stock_nxt_card
+from krx_data import build_name_to_ticker, clamp_intraday_dates, fetch_krx_data, get_krx_mapping, get_krx_mapping_instant
 from prompts import (
     generate_chatgpt_prompt,
     generate_gemini_prompt,
@@ -130,11 +131,72 @@ def get_major_indices() -> dict:
     return results
 
 
+@st.cache_data(ttl=60)
+def get_kospi_night_futures() -> dict | None:
+    """네이버 금융에서 코스피 야간선물(KOSPI200 야간) 현재가/전일대비/등락률을 반환합니다.
+
+    장 시간 외(18:00 ~ 익일 05:00)에만 체결 데이터가 있습니다.
+    데이터가 없거나 스크래핑 실패 시 None을 반환합니다.
+    """
+    import re
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        # 네이버 금융 야간선물 페이지 (KOSPI200 미니선물 야간)
+        url = "https://finance.naver.com/futures/now.naver?symbol=KSF"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(url, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        # 현재가
+        price_tag = soup.select_one("#now")
+        if price_tag is None:
+            # 대체 선택자 시도
+            price_tag = soup.select_one(".tit_area .num")
+        if price_tag is None:
+            return None
+
+        price_str = price_tag.get_text(strip=True).replace(",", "")
+        price = float(price_str)
+        if price == 0:
+            return None
+
+        # 전일대비 / 등락률
+        diff, pct = 0.0, 0.0
+        diff_tag = soup.select_one("#change")
+        if diff_tag:
+            diff_text = diff_tag.get_text(strip=True).replace(",", "").replace("+", "")
+            try:
+                diff = float(diff_text)
+            except Exception:
+                pass
+
+        pct_tag = soup.select_one("#rate")
+        if pct_tag:
+            pct_text = pct_tag.get_text(strip=True).replace("%", "").replace("+", "").replace(",", "")
+            try:
+                pct = float(pct_text)
+            except Exception:
+                pass
+
+        # 등락 방향(하락 시 음수)
+        down_tag = soup.select_one(".dn") or soup.select_one(".blind")
+        if down_tag and "하락" in down_tag.get_text(strip=True):
+            diff = -abs(diff)
+            pct = -abs(pct)
+
+        return {"price": price, "diff": diff, "pct": pct}
+    except Exception:
+        return None
+
+
 _SIDEBAR_URLS = {
     "🇺🇸 S&P 500": "https://finance.naver.com/world/sise.naver?symbol=SPI@SPX",
     "🇺🇸 NASDAQ": "https://finance.naver.com/world/sise.naver?symbol=NAS@IXIC",
     "🇰🇷 KOSPI": "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
     "🇰🇷 KOSDAQ": "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ",
+    "🌙 KOSPI 야간선물": "https://finance.naver.com/futures/now.naver?symbol=KSF",
     "💵 USD/KRW": "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW",
     "🥇 Gold": "https://finance.naver.com/marketindex/materialDetail.naver?marketindexCd=CMDT_GC",
     "🥈 Silver": "https://finance.naver.com/marketindex/materialDetail.naver?marketindexCd=CMDT_SI",
@@ -149,10 +211,12 @@ def _render_sidebar() -> None:
         from krx_data import fetch_krx_data
         from us_data import fetch_us_data, get_us_most_active
         get_major_indices.clear()
+        get_kospi_night_futures.clear()
         fetch_krx_data.clear()
         fetch_us_data.clear()
         get_us_most_active.clear()
-        for key in ("krx_market_df", "krx_time", "us_top_df", "us_time"):
+        for key in ("krx_market_df", "krx_time", "us_top_df", "us_time",
+                    "krx_market_loaded", "us_market_loaded"):
             st.session_state.pop(key, None)
 
     st.sidebar.markdown("---")
@@ -170,6 +234,22 @@ def _render_sidebar() -> None:
         val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
         st.sidebar.markdown(f"**[{name}]({url})**")
         st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
+
+    # ── 코스피 야간선물 ─────────────────────────────────────────────────────────
+    night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
+    night = get_kospi_night_futures()
+    st.sidebar.markdown(f"**[🌙 KOSPI 야간선물]({night_url})**")
+    if night:
+        pct_sign = "+" if night["pct"] >= 0 else ""
+        diff_sign = "+" if night["diff"] >= 0 else ""
+        st.sidebar.metric(
+            " ",
+            f"{night['price']:,.2f}",
+            f"{diff_sign}{night['diff']:,.2f} ({pct_sign}{night['pct']:.2f}%)",
+            label_visibility="collapsed",
+        )
+    else:
+        st.sidebar.caption("야간장 미체결 또는 데이터 없음 (18:00~05:00 활성)")
 
     st.sidebar.markdown("---")
     with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
@@ -246,26 +326,180 @@ tab_kr_indie, tab_us_indie, tab_kr_market, tab_us_market = st.tabs([
 
 # ─── Shared UI Components ─────────────────────────────────────────────────────
 
-def render_tradingview_widget(symbol: str, interval: str = "D") -> None:
-    """TradingView 위젯을 렌더링합니다."""
-    container_id = f"tv_{symbol.replace(':', '_')}"
-    components.html(
-        f"""
-        <div class="tradingview-widget-container" style="height:100%;width:100%">
-          <div id="{container_id}" style="height:calc(100% - 32px);width:100%"></div>
-          <script src="https://s3.tradingview.com/tv.js"></script>
-          <script>
-          new TradingView.widget({{
-            "autosize": true, "symbol": "{symbol}", "interval": "{interval}",
-            "timezone": "Asia/Seoul", "theme": "dark", "style": "1", "locale": "kr",
-            "enable_publishing": false, "allow_symbol_change": true,
-            "container_id": "{container_id}"
-          }});
-          </script>
-        </div>
-        """,
-        height=500,
+# ─── Real-Time Chart (TradingView Lightweight Charts) ─────────────────────────
+
+_LTWC_JS = "https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"
+
+
+def _bars_to_js(bars: list) -> str:
+    """OHLCV bar list를 TradingView Lightweight Charts JS 배열 문자열로 변환합니다."""
+    import json as _j
+    return _j.dumps(bars)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_yf_1m(ticker_yf: str) -> list:
+    """yfinance로 1분봉 데이터를 가져와서 TradingView Lightweight 형식으로 반환합니다."""
+    import yfinance as _yf
+    df = _yf.download(ticker_yf, period="1d", interval="1m", progress=False)
+    if df.empty:
+        return []
+    # MultiIndex 평탄화
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    # timezone KST
+    if df.index.tzinfo is not None:
+        df.index = df.index.tz_convert("Asia/Seoul").tz_localize(None)
+    bars = []
+    for ts, row in df.iterrows():
+        epoch = int(ts.timestamp())
+        bars.append({
+            "time": epoch,
+            "open": round(float(row.get("Open", 0)), 4),
+            "high": round(float(row.get("High", 0)), 4),
+            "low": round(float(row.get("Low", 0)), 4),
+            "close": round(float(row.get("Close", 0)), 4),
+        })
+    return bars
+
+
+def _render_ltwc_chart(bars: list, ticker: str, is_realtime: bool = False, currency: str = "KRW") -> None:
+    """TradingView Lightweight Charts로 캨들스틱 차트를 렌더링합니다."""
+    bars_json = _bars_to_js(bars)
+    price_format = '{type: "price", precision: 0, minMove: 1}' if currency == "KRW" else '{type: "price", precision: 2, minMove: 0.01}'
+    badge = (
+        '<span style="background:#00c853;color:#fff;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">'
+        '📡 LIVE</span>'
+        if is_realtime else
+        '<span style="background:#1565c0;color:#fff;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:700;">'
+        '⏰ 30초 polling</span>'
     )
+    html = f"""
+    <!DOCTYPE html><html><head>
+    <script src="{_LTWC_JS}"></script>
+    <style>
+      body{{margin:0;background:#131722;color:#d1d4dc;font-family:sans-serif;}}
+      #chart-header{{display:flex;align-items:center;gap:10px;padding:8px 12px;
+                     background:#1e2230;border-bottom:1px solid #2a2d3a;}}
+      #chart-header .ticker{{font-size:16px;font-weight:700;color:#ffffff;}}
+      #chart-header .ohlcv{{font-size:13px;color:#848e9c;}}
+      #chart{{width:100%;height:360px;}}
+    </style></head><body>
+    <div id="chart-header">
+      <span class="ticker">{ticker} 1분봉</span>
+      {badge}
+      <span class="ohlcv" id="ohlcv"></span>
+    </div>
+    <div id="chart"></div>
+    <script>
+    (function(){{
+      const bars = {bars_json};
+      const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
+        layout: {{background:{{color:'#131722'}},textColor:'#d1d4dc'}},
+        grid: {{vertLines:{{color:'#2a2d3a'}},horzLines:{{color:'#2a2d3a'}}}},
+        crosshair: {{mode: LightweightCharts.CrosshairMode.Normal}},
+        rightPriceScale: {{borderColor:'#2a2d3a'}},
+        timeScale: {{borderColor:'#2a2d3a', timeVisible:true, secondsVisible:false}},
+        width: document.getElementById('chart').offsetWidth,
+        height: 360,
+      }});
+      const series = chart.addCandlestickSeries({{
+        upColor:'#26a69a', downColor:'#ef5350',
+        borderUpColor:'#26a69a', borderDownColor:'#ef5350',
+        wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+        priceFormat: {price_format},
+      }});
+      if(bars.length > 0) {{
+        series.setData(bars);
+        chart.timeScale().fitContent();
+        const last = bars[bars.length-1];
+        document.getElementById('ohlcv').textContent =
+          'O:'+last.open+' H:'+last.high+' L:'+last.low+' C:'+last.close;
+      }}
+      // crosshair 이동 시 OHLCV 표시
+      chart.subscribeCrosshairMove(function(param) {{
+        if(param.time && param.seriesData.size > 0) {{
+          const d = param.seriesData.get(series);
+          if(d) document.getElementById('ohlcv').textContent =
+            'O:'+d.open+' H:'+d.high+' L:'+d.low+' C:'+d.close;
+        }}
+      }});
+      // 리사이즈 대응
+      window.addEventListener('resize', ()=>{{ chart.resize(document.getElementById('chart').offsetWidth, 360); }});
+    }})();
+    </script></body></html>
+    """
+    components.html(html, height=420, scrolling=False)
+
+
+@st.fragment
+def render_realtime_chart(ticker: str, currency: str = "KRW", key_prefix: str = "rt") -> None:
+    """1분봉 실시간 차트 섹션을 렌더링합니다.
+
+    - 한투 API 키 없으면: yfinance 30초 polling
+    - 한투 API 키 있으면: WebSocket 실시간 수신
+    """
+    st.divider()
+    st.subheader("📡 실시간 1분봉 차트")
+
+    running_key = f"{key_prefix}_{ticker}_rt_running"
+    interval_key = f"{key_prefix}_{ticker}_rt_interval"
+
+    col_btn, col_interval, col_stop = st.columns([1.5, 2, 1])
+    with col_btn:
+        if not st.session_state.get(running_key):
+            if st.button("▶️ 실시간 차트 시작", key=f"{key_prefix}_{ticker}_start", type="primary"):
+                st.session_state[running_key] = True
+                st.rerun(scope="fragment")
+    with col_interval:
+        refresh_sec = st.select_slider(
+            "🔄 업데이트 주기 (초)",
+            options=[10, 15, 20, 30, 60],
+            value=st.session_state.get(interval_key, 30),
+            key=interval_key,
+        )
+    with col_stop:
+        if st.session_state.get(running_key):
+            if st.button("⏹️ 중지", key=f"{key_prefix}_{ticker}_stop"):
+                st.session_state[running_key] = False
+                st.rerun(scope="fragment")
+
+    if not st.session_state.get(running_key):
+        st.caption("▶ 시작 버튼을 누르면 1분봉 데이터를 실시간으로 불러옵니다.")
+        return
+
+    # ── 한투 WebSocket 모드 (API 키 있을 때)
+    kis = get_kis_client(st.session_state)
+    is_realtime = False
+    bars: list = []
+
+    if kis:
+        kis.subscribe(ticker)
+        bars = kis.get_bars(ticker)
+        is_realtime = kis.is_connected
+        status = "🟢 WebSocket 연결됨" if is_realtime else "🟡 WebSocket 연결 중..."
+        st.caption(status)
+    
+    # ── yfinance polling 모드 (bars가 비어 있으면 항상 실행, 한투도 초기 히스토리 보완용)
+    if not bars:
+        # yfinance ticker 스타일 변환: 005930 → 005930.KS, AAPL → AAPL
+        if ticker.isdigit() or (len(ticker) == 6 and ticker[:3].isdigit()):
+            yf_ticker = ticker + ".KS"
+        else:
+            yf_ticker = ticker
+        
+        with st.spinner("한투 데이터 불러오는 중..."):
+            bars = _fetch_yf_1m(yf_ticker)
+
+    if not bars:
+        st.warning("현재 시세 데이터를 가져올 수 없습니다. (장 휴장일이거나 지원하지 않는 종목)")
+    else:
+        st.caption(f"마지막 업데이트: {now_kst().strftime('%H:%M:%S')} KST | {len(bars)}개 봉")
+        _render_ltwc_chart(bars, ticker, is_realtime=is_realtime, currency=currency)
+
+    # ── 자동 리프레시
+    time.sleep(refresh_sec)
+    st.rerun(scope="fragment")
 
 import json as _json
 
@@ -662,26 +896,66 @@ def _push_recent(key: str, value: str, storage_key: str) -> None:
 
 # ─── KRX Tabs ─────────────────────────────────────────────────────────────────
 
-# Ticker mapping
-ticker_to_name = get_krx_mapping()
+# Ticker mapping — 로컈 JSON 캐시에서 즉시 로딩, 백그라운드에서 FDR 업데이트
+ticker_to_name = get_krx_mapping_instant()  # 섭간 실행 (로컈 JSON)
 name_to_ticker, sorted_names = build_name_to_ticker(ticker_to_name)
 
-with tab_kr_market:
-    st.header("🇰🇷 한국거래소 (KRX) 시장 동향")
+# 백그라운드에서 FDR 목록 업데이트 (캐시 만료된 경우만)
+def _refresh_mapping_bg():
+    import time
+    import os
+    _cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), "krx_mapping_cache.json")
+    try:
+        if os.path.exists(_cache) and (time.time() - os.path.getmtime(_cache)) < 86400:
+            return  # 24시간 이내면 갱신 불필요
+        get_krx_mapping()  # @st.cache_data 업데이트
+    except Exception:
+        pass
 
-    krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
-    st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
+import concurrent.futures as _cf
+_cf.ThreadPoolExecutor(max_workers=1).submit(_refresh_mapping_bg)
 
+@st.fragment
+def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
+    """KRX 현황 탭 — 버튼을 눈러야 무거운 랜킹 데이터를 로드합니다."""
     today_str = today_kst().strftime("%Y%m%d")
-
-    # Ranking section
     DISPLAY_COLS = ["종목명", "종가", "시가", "고가", "저가", "52주최고", "등락률", "거래량", "거래대금", "is_breakout"]
     NUMERIC_COLS = ["종가", "시가", "고가", "저가", "거래량", "거래대금", "52주최고"]
 
-    try:
-        render_krx_ranking(today_str, krx_time_str, name_to_ticker, NUMERIC_COLS, DISPLAY_COLS)
-    except Exception as e:
-        st.warning(f"랭킹 데이터를 가져오는데 실패했습니다: {e}\n\n```\n{traceback.format_exc()}\n```")
+    tab_krx, tab_nxt = st.tabs(["KRX 단독", "KRX + NXT 통합"])
+
+    with tab_krx:
+        if not st.session_state.get("krx_market_loaded"):
+            st.info("📊 버튼을 눐러 국내 주식 시장 현황을 불러오세요.")
+            if st.button("📊 KRX 현황 불러오기", type="primary", key="btn_load_krx_market"):
+                st.session_state["krx_market_loaded"] = True
+                st.rerun(fragment=True)
+        else:
+            krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
+            st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
+            try:
+                render_krx_ranking(today_str, krx_time_str, name_to_ticker_map, NUMERIC_COLS, DISPLAY_COLS)
+            except Exception as e:
+                st.warning(f"랜킹 데이터를 가져오는데 실패했습니다: {e}\n\n```\n{traceback.format_exc()}\n```")
+
+    with tab_nxt:
+        if not st.session_state.get("krx_nxt_market_loaded"):
+            st.info("📊 KRX와 넥스트레이드(NXT)를 통합한 시장 현황 데이터를 불러옵니다.")
+            st.caption("⚡ NXT는 대체거래소(넥스트레이드)입니다. NXT 거래시간: 오전 8시 ~ 오후 8시 (20분 지연)")
+            if st.button("📊 KRX+NXT 통합 현황 불러오기", type="primary", key="btn_load_krx_nxt_market"):
+                st.session_state["krx_nxt_market_loaded"] = True
+                st.rerun(fragment=True)
+        else:
+            krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
+            try:
+                render_krx_nxt_ranking(today_str, krx_time_str, name_to_ticker_map)
+            except Exception as e:
+                st.warning(f"KRX+NXT 랜킹 로드 실패: {e}\n\n```\n{traceback.format_exc()}\n```")
+
+
+with tab_kr_market:
+    st.header("🇰🇷 한국거래소 (KRX) 시장 동향")
+    _render_krx_market_tab(name_to_ticker)
 
 
 with tab_kr_indie:
@@ -700,7 +974,7 @@ with tab_kr_indie:
     interval_kr_sel = st.session_state.get("kr_int", "일/주/월/연봉 종합분석")
     extra_data_sel = st.session_state.get("kr_data_sel", ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"])
 
-    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", width="stretch"):
+    if st.button("🚀 분석 실행 (KRX Analysis)", type="primary", use_container_width=True):
         symbol = (
             st.session_state.get("kr_select_box", sorted_names[default_index] if sorted_names else None)
             if name_to_ticker
@@ -710,6 +984,21 @@ with tab_kr_indie:
             st.warning("종목 또는 코드를 입력/선택해주세요.")
         else:
             st.session_state["run_krx"] = True
+            st.session_state["run_krx_nxt"] = False
+            _push_recent("recent_kr", symbol, "recent_kr")
+
+    if st.button("🔗 KRX+NXT 통합 분석", type="secondary", use_container_width=True,
+                 help="KRX 분석 + 넥스트레이드(NXT) 시세를 함께 확인합니다"):
+        symbol = (
+            st.session_state.get("kr_select_box", sorted_names[default_index] if sorted_names else None)
+            if name_to_ticker
+            else st.session_state.get("kr_code_input", "005930")
+        )
+        if not symbol:
+            st.warning("종목 또는 코드를 입력/선택해주세요.")
+        else:
+            st.session_state["run_krx"] = True
+            st.session_state["run_krx_nxt"] = True
             _push_recent("recent_kr", symbol, "recent_kr")
 
     if st.session_state.get("run_krx"):
@@ -720,14 +1009,17 @@ with tab_kr_indie:
             kr_code = st.session_state.get("kr_code_input", "005930")
             selected_name = kr_code
 
-        render_tradingview_widget(f"KRX:{kr_code}")
-
         with st.spinner("KRX 데이터 가져오는 중..."):
             t0 = time.time()
+            # date_selector_fragment 가 datetime.date 를 반환할 수 있으므로 datetime 으로 통일
+            if hasattr(start_date_kr, 'hour') is False:
+                start_date_kr = datetime.combine(start_date_kr, datetime.min.time())
+            if hasattr(end_date_kr, 'hour') is False:
+                end_date_kr = datetime.combine(end_date_kr, datetime.min.time())
             start_date_kr = clamp_intraday_dates(interval_kr_sel, start_date_kr, end_date_kr)
             s_str = start_date_kr.strftime("%Y%m%d")
             e_str = end_date_kr.strftime("%Y%m%d")
-            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, interval_kr_sel, extra_data_sel)
+            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, interval_kr_sel, tuple(extra_data_sel))
 
         try:
             if df_kr.empty:
@@ -760,6 +1052,13 @@ with tab_kr_indie:
                 run_analysis_and_prompts(df_final, kr_code, selected_name, market_name, "KRW", interval_kr_sel, key_suffix="kr_single", selected_data=extra_data_sel)
         except Exception as e:
             st.error(f"오류 발생: {e}\n```\n{traceback.format_exc()}\n```")
+        else:
+            # 실시간 차트
+            render_realtime_chart(kr_code, currency="KRW", key_prefix="kr")
+
+        # KRX+NXT 통합 분석 카드 (통합 디스플레이 모드일 때)
+        if st.session_state.get("run_krx_nxt"):
+            render_stock_nxt_card(kr_code, selected_name)
 
 
 # ─── US Tabs ────────────────────────────────────────────────────────────────────
@@ -768,8 +1067,15 @@ us_ticker_map = get_sp500_mapping()
 us_name_to_ticker = {f"{n} ({t})": t for t, n in us_ticker_map.items()}
 us_sorted_names = sorted(us_name_to_ticker.keys())
 
-with tab_us_market:
-    st.header("🇺🇸 미국 주식 (US Stock) 시장 동향")
+@st.fragment
+def _render_us_market_tab() -> None:
+    """US 현황 탭 — 버튼을 눌러야 무거운 랭킹 데이터를 로드합니다."""
+    if not st.session_state.get("us_market_loaded"):
+        st.info("📊 버튼을 눌러 미국 주식 시장 현황을 불러오세요.")
+        if st.button("📊 US 현황 불러오기", type="primary", key="btn_load_us_market"):
+            st.session_state["us_market_loaded"] = True
+            st.rerun(fragment=True)
+        return
 
     us_time_str = st.session_state.get("us_time", now_kst().strftime("%m/%d %H:%M"))
     st.subheader(f"🔥 거래량 상위 Top 10 (Most Active) ({us_time_str})")
@@ -829,6 +1135,11 @@ with tab_us_market:
     else:
         st.info("랭킹 데이터를 불러올 수 없습니다.")
 
+
+with tab_us_market:
+    st.header("🇺🇸 미국 주식 (US Stock) 시장 동향")
+    _render_us_market_tab()
+
 with tab_us_indie:
     st.header("US 해외 주식 개별 분석")
 
@@ -885,6 +1196,11 @@ with tab_us_indie:
 
         with st.spinner("미국 주식 데이터 가져오는 중..."):
             t0 = time.time()
+            # date_selector_fragment 가 datetime.date 를 반환할 수 있으므로 datetime 으로 통일
+            if hasattr(start_date_us, 'hour') is False:
+                start_date_us = datetime.combine(start_date_us, datetime.min.time())
+            if hasattr(end_date_us, 'hour') is False:
+                end_date_us = datetime.combine(end_date_us, datetime.min.time())
             start_date_us = clamp_intraday_dates(interval_us_sel, start_date_us, end_date_us)
             df_us = fetch_us_data(us_ticker, start_date_us.strftime("%Y%m%d"), end_date_us.strftime("%Y%m%d"), interval_us_sel)
 
@@ -916,3 +1232,7 @@ with tab_us_indie:
             name_display = selected_us_name if us_name_to_ticker else us_ticker
             st.success(f"'{name_display}' {interval_us_sel} 분석 (⏱️ {elapsed:.2f}초)")
             run_analysis_and_prompts(df_final, us_ticker, name_display, "US", "USD", interval_us_sel, key_suffix="us_single")
+
+        # 실시간 차트 (네임에러 방지: run_us 블록 안에서 호출)
+        if us_ticker:
+            render_realtime_chart(us_ticker, currency="USD", key_prefix="us")

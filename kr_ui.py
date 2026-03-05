@@ -373,3 +373,245 @@ def render_krx_ranking(
         _render_table(top_val, display_cols, numeric_cols, "toggle_kr_val", ticker_to_name)
     else:
         st.warning("'거래대금' 컬럼을 찾을 수 없습니다.")
+
+
+# ─── KRX + NXT Combined Ranking ──────────────────────────────────────────────
+
+@st.fragment
+def render_krx_nxt_ranking(
+    today_str: str,
+    krx_time_str: str,
+    name_to_ticker_map: dict[str, str],
+) -> None:
+    """KRX와 NXT(넥스트레이드) 데이터를 통합하여 거래량/거래대금 상위 종목을 렌더링합니다."""
+    from krx_data import get_krx_ranking, get_nxt_ranking
+
+    ticker_to_name = {v: k for k, v in name_to_ticker_map.items()}
+
+    with st.spinner("KRX + NXT 통합 시장 데이터를 가져오는 중..."):
+        col_krx, col_nxt = st.columns(2)
+        with col_krx:
+            with st.spinner("KRX 데이터 로딩..."):
+                krx_df = get_krx_ranking()
+        with col_nxt:
+            with st.spinner("NXT(넥스트레이드) 데이터 로딩..."):
+                nxt_df = get_nxt_ranking(rows=100)
+
+    nxt_ok = not nxt_df.empty
+    krx_ok = not krx_df.empty
+
+    # ── NXT 상태 배지
+    if nxt_ok:
+        nxt_vol_total = nxt_df["NXT거래량"].sum()
+        nxt_val_total = nxt_df["NXT거래대금"].sum()
+        st.success(
+            f"✅ NXT 데이터 수신 완료 ({len(nxt_df)}개 종목 | "
+            f"총 거래량 {nxt_vol_total:,.0f}주 | "
+            f"총 거래대금 {nxt_val_total/1e8:,.1f}억원) — 20분 지연"
+        )
+    else:
+        st.warning("⚠️ NXT 데이터를 가져올 수 없습니다. 장 시간 외(프리마켓 전)이거나 API 일시 장애일 수 있습니다.")
+
+    if not krx_ok:
+        st.info("KRX 데이터도 없습니다. 장 시작 전이거나 휴장일입니다.")
+        return
+
+    # ── 종목명 정리
+    krx_vol_col = "거래량" if "거래량" in krx_df.columns else "Volume"
+    krx_val_col = "거래대금" if "거래대금" in krx_df.columns else None
+
+    if nxt_ok:
+        merged = krx_df.join(
+            nxt_df[["NXT거래량", "NXT거래대금", "종목명"]].rename(columns={"종목명": "_nxt_name"}),
+            how="left",
+        )
+        merged["NXT거래량"] = merged["NXT거래량"].fillna(0)
+        merged["NXT거래대금"] = merged["NXT거래대금"].fillna(0)
+    else:
+        merged = krx_df.copy()
+        merged["NXT거래량"] = 0.0
+        merged["NXT거래대금"] = 0.0
+
+    krx_vol_series = merged[krx_vol_col].fillna(0) if krx_vol_col in merged.columns else pd.Series(0, index=merged.index)
+    merged["합산거래량"] = krx_vol_series + merged["NXT거래량"]
+    if krx_val_col and krx_val_col in merged.columns:
+        merged["합산거래대금"] = merged[krx_val_col].fillna(0) + merged["NXT거래대금"]
+    else:
+        merged["합산거래대금"] = merged["NXT거래대금"]
+
+    merged["NXT비중"] = merged.apply(
+        lambda r: (r["NXT거래량"] / r["합산거래량"] * 100) if r["합산거래량"] > 0 else 0.0,
+        axis=1,
+    ).round(1)
+
+    exclude_etf = st.toggle("🚫 ETF/ETN 제외 (순수 주식만 랭킹 보기)", value=True, key="nxt_exclude_etf")
+    if exclude_etf:
+        if ticker_to_name:
+            merged = merged[merged.index.isin(ticker_to_name.keys())]
+        elif "종목명" in merged.columns:
+            etf_kw = ["KODEX","TIGER","KBSTAR","KINDEX","ACE","ARIRANG","KOSEF","HANARO","SOL","TIMEFOLIO","ETN","인버스","레버리지","스팩","선물"]
+            merged = merged[~merged["종목명"].str.contains("|".join(etf_kw), case=False, na=False)]
+
+    def _build_display(df_sub: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
+        top = df_sub.sort_values("합산거래량", ascending=False).head(top_n).copy()
+        def _name(t):
+            n = ticker_to_name.get(t, "")
+            if n: return n
+            if "종목명" in top.columns:
+                v = top.loc[t, "종목명"] if t in top.index else ""
+                if pd.notna(v) and str(v).strip(): return str(v)
+            return t
+        disp = pd.DataFrame(index=top.index)
+        disp["종목명"] = [f"https://finance.naver.com/item/main.naver?code={t}&name={_name(t)}" for t in top.index]
+        if "현재가" in top.columns: disp["현재가"] = top["현재가"].apply(lambda x: f"{x:,.0f}")
+        if "등락률" in top.columns: disp["등락률"] = top["등락률"]
+        disp["KRX거래량"] = top[krx_vol_col].apply(lambda x: f"{x:,.0f}") if krx_vol_col in top.columns else "—"
+        disp["NXT거래량"] = top["NXT거래량"].apply(lambda x: f"{x:,.0f}")
+        disp["합산거래량"] = top["합산거래량"].apply(lambda x: f"{x:,.0f}")
+        disp["NXT비중(%)"] = top["NXT비중"].apply(lambda x: f"{x:.1f}%")
+        if "합산거래대금" in top.columns: disp["합산거래대금"] = top["합산거래대금"].apply(lambda x: f"{x:,.0f}")
+        return disp
+
+    col_cfg = {
+        "종목명": st.column_config.LinkColumn("종목명", display_text=r"name=([^&]+)"),
+        "등락률": st.column_config.TextColumn("등락률"),
+        "NXT비중(%)": st.column_config.TextColumn("NXT비중"),
+    }
+
+    st.subheader(f"🔥 KRX+NXT 합산 거래량 TOP 10 ({krx_time_str})")
+    disp_vol = _build_display(merged, 10)
+    styler_vol = disp_vol.style
+    if "등락률" in disp_vol.columns:
+        styler_vol = styler_vol.format({"등락률": add_arrow}).map(format_price_change, subset=["등락률"])
+    st.dataframe(styler_vol, column_config=col_cfg, use_container_width=True)
+
+    st.subheader(f"💰 KRX+NXT 합산 거래대금 TOP 10 ({krx_time_str})")
+    top_val = merged.sort_values("합산거래대금", ascending=False).head(10)
+    disp_val2 = pd.DataFrame(index=top_val.index)
+    def _name_v(t):
+        n = ticker_to_name.get(t, "")
+        if n: return n
+        if "종목명" in top_val.columns:
+            v = top_val.loc[t, "종목명"] if t in top_val.index else ""
+            if pd.notna(v) and str(v).strip(): return str(v)
+        return t
+    disp_val2["종목명"] = [f"https://finance.naver.com/item/main.naver?code={t}&name={_name_v(t)}" for t in top_val.index]
+    if "현재가" in top_val.columns: disp_val2["현재가"] = top_val["현재가"].apply(lambda x: f"{x:,.0f}")
+    if "등락률" in top_val.columns: disp_val2["등락률"] = top_val["등락률"]
+    if krx_val_col and krx_val_col in top_val.columns: disp_val2["KRX거래대금"] = top_val[krx_val_col].apply(lambda x: f"{x:,.0f}")
+    disp_val2["NXT거래대금"] = top_val["NXT거래대금"].apply(lambda x: f"{x:,.0f}")
+    disp_val2["합산거래대금"] = top_val["합산거래대금"].apply(lambda x: f"{x:,.0f}")
+    disp_val2["NXT비중(%)"] = top_val["NXT비중"].apply(lambda x: f"{x:.1f}%")
+    styler_val = disp_val2.style
+    if "등락률" in disp_val2.columns:
+        styler_val = styler_val.format({"등락률": add_arrow}).map(format_price_change, subset=["등락률"])
+    st.dataframe(styler_val, column_config=col_cfg, use_container_width=True)
+
+    if nxt_ok:
+        st.divider()
+        st.subheader("📊 NXT 단독 거래량 TOP 10")
+        top_nxt_only = nxt_df.sort_values("NXT거래량", ascending=False).head(10).copy()
+        disp_nxt = pd.DataFrame(index=top_nxt_only.index)
+        def _name_n(t): return ticker_to_name.get(t, str(top_nxt_only.loc[t, "종목명"]) if t in top_nxt_only.index else t)
+        disp_nxt["종목명"] = [f"https://finance.naver.com/item/main.naver?code={t}&name={_name_n(t)}" for t in top_nxt_only.index]
+        disp_nxt["현재가(NXT)"] = top_nxt_only["현재가"].apply(lambda x: f"{x:,.0f}")
+        disp_nxt["등락률"] = top_nxt_only["등락률"]
+        disp_nxt["NXT거래량"] = top_nxt_only["NXT거래량"].apply(lambda x: f"{x:,.0f}")
+        disp_nxt["NXT거래대금"] = top_nxt_only["NXT거래대금"].apply(lambda x: f"{x:,.0f}")
+        styler_nxt = disp_nxt.style
+        if "등락률" in disp_nxt.columns:
+            styler_nxt = styler_nxt.format({"등락률": add_arrow}).map(format_price_change, subset=["등락률"])
+        st.dataframe(styler_nxt, column_config=col_cfg, use_container_width=True)
+
+
+# ─── Individual Stock KRX+NXT Card ──────────────────────────────────────────
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_naver_realtime(code: str) -> dict:
+    """네이버 금융 sise 페이지에서 실시간 시세를 가져옵니다 (30초 캐시)."""
+    import requests as _req
+    from bs4 import BeautifulSoup as _BS
+    try:
+        url = f"https://finance.naver.com/item/sise.naver?code={code}"
+        res = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = _BS(res.text, "html.parser")
+
+        def _n(sel):
+            e = soup.select_one(sel)
+            if not e: return 0.0
+            try: return float(e.get_text(strip=True).replace(",", "").replace("+", "").replace("%", ""))
+            except ValueError: return 0.0
+
+        p = _n("#_nowVal")
+        return {
+            "price": p, "diff": -abs(_n("#_diff")) if soup.select_one(".dn") else abs(_n("#_diff")),
+            "rate": -abs(_n("#_rate")) if soup.select_one(".dn") else abs(_n("#_rate")),
+            "vol": _n("#quant"), "val": _n("#trade_val") * 1_000_000,
+            "ok": p > 0
+        }
+    except Exception:
+        return {"price": 0, "diff": 0, "rate": 0, "vol": 0, "val": 0, "ok": False}
+
+
+@st.fragment
+def render_stock_nxt_card(code: str, name: str) -> None:
+    """단일 종목의 네이버 실시간 시세와 NXT 거래 데이터를 비교 표시합니다."""
+    from krx_data import get_nxt_ranking
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        with st.spinner("네이버 실시간 시세 조회 중..."):
+            nav = _fetch_naver_realtime(code)
+    with col_b:
+        with st.spinner("NXT 시세 조회 중 (20분 지연)..."):
+            nxt_df = get_nxt_ranking(rows=200)
+
+    nxt_row = nxt_df.loc[code] if (not nxt_df.empty and code in nxt_df.index) else None
+
+    st.divider()
+    st.subheader("🔗 KRX + NXT 통합 거래 현황")
+
+    if not nav["ok"] and nxt_row is None:
+        st.warning("시세 데이터를 가져올 수 없습니다. 장 외 시간이거나 네트워크를 확인해주세요.")
+        return
+
+    if nav["ok"]:
+        st.markdown("**📡 네이버 금융 실시간** (KRX+NXT 통합 최선가 · 약 30초 지연)")
+        c1, c2, c3, c4 = st.columns(4)
+        sq = "+" if nav["rate"] > 0 else ""
+        ar = "▲" if nav["rate"] > 0 else ("▼" if nav["rate"] < 0 else "—")
+        c1.metric("현재가", f"{nav['price']:,.0f} 원", f"{ar} {sq}{nav['rate']:.2f}%")
+        c2.metric("전일대비", f"{sq}{nav['diff']:,.0f} 원")
+        c3.metric("거래량", f"{nav['vol']:,.0f} 주" if nav["vol"] > 0 else "—")
+        c4.metric("거래대금", f"{nav['val']/1e8:,.1f} 억원" if nav["val"] > 0 else "—")
+
+    st.markdown("**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · 20분 지연)")
+    if nxt_row is not None:
+        np = float(nxt_row["현재가"])
+        nr = float(nxt_row["등락률"])
+        nv = float(nxt_row["NXT거래량"])
+        nva = float(nxt_row["NXT거래대금"])
+        ns = "+" if nr > 0 else ""
+        na = "▲" if nr > 0 else ("▼" if nr < 0 else "—")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("NXT 현재가", f"{np:,.0f} 원", f"{na} {ns}{nr:.2f}%")
+        d2.metric("NXT 거래량", f"{nv:,.0f} 주")
+        d3.metric("NXT 거래대금", f"{nva / 1e8:,.1f} 억원")
+        if nav["ok"] and nav["vol"] > 0 and nv > 0:
+            sh = nv / (nav["vol"] + nv) * 100
+            st.progress(min(sh/100, 1.0), text=f"NXT 거래 비중 약 {sh:.1f}% (네이버 거래량 기준)")
+    else:
+        st.info("⏳ 해당 종목의 NXT 체결 데이터가 없습니다.")
+
+    st.caption("⚡ [NXT 시장 현황 보기](https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do)")
+
+
+# ─── Naver Static Chart ───────────────────────────────────────────────────────
+
+@st.fragment
+def render_naver_chart(code: str, name: str) -> None:
+    """국내 주식용 TradingView를 대체할 네이버 금융 일봉 차트 이미지를 렌더링합니다."""
+    st.markdown(f"#### 📈 {name}({code}) 일봉 차트 (Naver)")
+    st.caption("TradingView 위젯 지원 제한으로 네이버 금융 차트를 제공합니다.")
+    url = f"https://ssl.pstatic.net/imgfinance/chart/item/candle/day/{code}.png"
+    st.image(url, use_container_width=True)

@@ -70,6 +70,23 @@ _INTRADAY_MAX_DAYS: dict[str, int] = {
 
 # ─── Ticker Mapping ───────────────────────────────────────────────────────────
 
+def get_krx_mapping_instant() -> dict[str, str]:
+    """로컬 JSON 캐시에서 즉시 종목 매핑을 반환합니다 (네트워크 요청 없음).
+
+    캐시 파일이 있으면 날짜 무관하게 바로 반환, 없으면 빈 dict를 반환합니다.
+    UI를 블로킹하지 않기 위해 @st.cache_data를 사용하지 않습니다.
+    """
+    try:
+        if os.path.exists(_KRX_CACHE_FILE):
+            with open(_KRX_CACHE_FILE, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+            if mapping:
+                return mapping
+    except Exception:
+        pass
+    return {}
+
+
 @st.cache_data(ttl=86400, show_spinner="KRX 종목 마스터 로딩 중...")
 def get_krx_mapping(cache_bust: int = 2) -> dict[str, str]:
     """코드→종목명 매핑을 반환합니다.
@@ -213,7 +230,7 @@ def _to_kst(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list) -> tuple[pd.DataFrame, str]:
+def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list | tuple) -> tuple[pd.DataFrame, str]:
     """KRX 종목 OHLCV 데이터를 반환합니다. (ticker_code, market_name)"""
     import FinanceDataReader as fdr
 
@@ -470,3 +487,84 @@ def get_krx_ranking() -> pd.DataFrame:
         return df.sort_values("거래량", ascending=False) if "거래량" in df.columns else df
 
     return pd.DataFrame()
+
+
+# ─── NXT (Nextrade) Rankings ─────────────────────────────────────────────────
+
+_NXT_API_URL = "https://www.nextrade.co.kr/brdinfoTime/brdinfoTimeList.do"
+_NXT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Referer": "https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_nxt_ranking(rows: int = 50) -> pd.DataFrame:
+    """넥스트레이드(NXT) API에서 거래량/거래대금 상위 종목을 가져옵니다.
+
+    반환 DataFrame 컬럼:
+        code (str): 6자리 종목코드
+        종목명 (str)
+        현재가 (float)
+        등락률 (float)
+        NXT거래량 (float)
+        NXT거래대금 (float)
+    """
+    today_str = datetime.today().strftime("%Y%m%d")
+    params = {
+        "sidx": "accTdQty",  # 거래량 기준 정렬
+        "sord": "desc",
+        "rows": str(rows),
+        "scMktId": "",      # 전체(코스피+코스닥)
+        "scAggDd": today_str,
+        "pageUnit": str(rows),
+        "page": "1",
+    }
+    try:
+        resp = requests.post(_NXT_API_URL, data=params, headers=_NXT_HEADERS, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        rows_data = data.get("brdinfoTimeList") or data.get("rows") or []
+        if not rows_data:
+            # 응답 구조가 다를 경우 전체 키를 탐색
+            for key in data:
+                if isinstance(data[key], list) and len(data[key]) > 0:
+                    rows_data = data[key]
+                    break
+        if not rows_data:
+            return pd.DataFrame()
+
+        records = []
+        for item in rows_data:
+            # 종목코드: 'A005930' 형식 → '005930' 으로 변환
+            raw_code = str(item.get("isuSrdCd", "")).strip()
+            code = raw_code.lstrip("A") if raw_code.startswith("A") else raw_code
+            if not (code and len(code) == 6 and code.isdigit()):
+                continue
+
+            def _f(val, default=0.0):
+                try:
+                    return float(str(val).replace(",", "")) if val else default
+                except (ValueError, TypeError):
+                    return default
+
+            records.append({
+                "code": code,
+                "종목명": str(item.get("isuAbwdNm", "")).strip(),
+                "현재가": _f(item.get("curPrc")),
+                "등락률": _f(item.get("upDownRate")),
+                "NXT거래량": _f(item.get("accTdQty")),
+                "NXT거래대금": _f(item.get("accTrval")),
+            })
+
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records).set_index("code")
+        return df.sort_values("NXT거래량", ascending=False)
+
+    except Exception as e:
+        print(f"[krx_data] NXT API 오류: {e}")
+        return pd.DataFrame()
