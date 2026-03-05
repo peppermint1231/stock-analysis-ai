@@ -17,7 +17,7 @@ from streamlit_local_storage import LocalStorage
 from ai_client import get_gemini_response
 from date_fragment import date_selector_fragment
 from kis_ws import get_kis_client, get_kis_config
-from kr_ui import render_krx_nxt_ranking, render_krx_ranking, render_stock_nxt_card
+from kr_ui import render_krx_nxt_ranking, render_krx_ranking
 from krx_data import build_name_to_ticker, clamp_intraday_dates, fetch_krx_data, get_krx_mapping, get_krx_mapping_instant
 from prompts import (
     generate_chatgpt_prompt,
