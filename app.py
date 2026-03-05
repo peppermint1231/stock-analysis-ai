@@ -792,7 +792,7 @@ def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
     with col2:
         st.pills(
             "분석간격",
-            ["일/주/월/연봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
+            ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
              "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
             default="일/주/월/연봉 종합분석",
             selection_mode="single",
@@ -856,7 +856,7 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
     with col2:
         st.pills(
             "데이터 간격 (Interval)",
-            ["일/주/월/연봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
+            ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
              "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
             default="일/주/월/연봉 종합분석",
             selection_mode="single",
@@ -883,6 +883,16 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
     df_y = calculate_indicators(resample_ohlcv(df_daily, "YE"))
 
     return df_d, df_w, df_m, df_y
+
+
+@st.cache_data(ttl=600, show_spinner="멀티 분봉 데이터 준비 중...")
+def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
+    df_1m = df_1m.sort_index()
+    df_60 = calculate_indicators(resample_ohlcv(df_1m, "60min"))
+    df_15 = calculate_indicators(resample_ohlcv(df_1m, "15min"))
+    df_5 = calculate_indicators(resample_ohlcv(df_1m, "5min"))
+    df_1 = calculate_indicators(df_1m)
+    return df_60, df_15, df_5, df_1
 
 
 def _push_recent(key: str, value: str, storage_key: str) -> None:
@@ -1016,10 +1026,11 @@ with tab_kr_indie:
                 start_date_kr = datetime.combine(start_date_kr, datetime.min.time())
             if hasattr(end_date_kr, 'hour') is False:
                 end_date_kr = datetime.combine(end_date_kr, datetime.min.time())
-            start_date_kr = clamp_intraday_dates(interval_kr_sel, start_date_kr, end_date_kr)
+            fetch_int_kr = "1분 (1 Minute)" if interval_kr_sel == "시간/분봉 종합분석" else interval_kr_sel
+            start_date_kr = clamp_intraday_dates(fetch_int_kr, start_date_kr, end_date_kr)
             s_str = start_date_kr.strftime("%Y%m%d")
             e_str = end_date_kr.strftime("%Y%m%d")
-            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, interval_kr_sel, tuple(extra_data_sel))
+            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel))
 
         try:
             if df_kr.empty:
@@ -1039,6 +1050,21 @@ with tab_kr_indie:
                     run_analysis_and_prompts(df_m, kr_code, selected_name, market_name, "KRW", "월봉", key_suffix="kr_m", selected_data=extra_data_sel)
                 with t5:
                     run_analysis_and_prompts(df_y, kr_code, selected_name, market_name, "KRW", "연봉", key_suffix="kr_y", selected_data=extra_data_sel)
+            elif interval_kr_sel == "시간/분봉 종합분석":
+                elapsed = time.time() - t0
+                st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
+                df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
+                t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
+                with t1:
+                    render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "15min": df_15, "5min": df_5, "1min": df_1}, [])
+                with t2:
+                    run_analysis_and_prompts(df_60, kr_code, selected_name, market_name, "KRW", "60분봉", key_suffix="kr_60m", selected_data=extra_data_sel)
+                with t3:
+                    run_analysis_and_prompts(df_15, kr_code, selected_name, market_name, "KRW", "15분봉", key_suffix="kr_15m", selected_data=extra_data_sel)
+                with t4:
+                    run_analysis_and_prompts(df_5, kr_code, selected_name, market_name, "KRW", "5분봉", key_suffix="kr_5m", selected_data=extra_data_sel)
+                with t5:
+                    run_analysis_and_prompts(df_1, kr_code, selected_name, market_name, "KRW", "1분봉", key_suffix="kr_1m", selected_data=extra_data_sel)
             else:
                 _period_codes = {"일봉 (Daily)": "D", "주봉 (Weekly)": "W", "월봉 (Monthly)": "ME", "연봉 (Yearly)": "YE"}
                 if interval_kr_sel in _period_codes:
@@ -1201,15 +1227,16 @@ with tab_us_indie:
                 start_date_us = datetime.combine(start_date_us, datetime.min.time())
             if hasattr(end_date_us, 'hour') is False:
                 end_date_us = datetime.combine(end_date_us, datetime.min.time())
-            start_date_us = clamp_intraday_dates(interval_us_sel, start_date_us, end_date_us)
-            df_us = fetch_us_data(us_ticker, start_date_us.strftime("%Y%m%d"), end_date_us.strftime("%Y%m%d"), interval_us_sel)
+            fetch_int_us = "1분 (1 Minute)" if interval_us_sel == "시간/분봉 종합분석" else interval_us_sel
+            start_date_us = clamp_intraday_dates(fetch_int_us, start_date_us, end_date_us)
+            df_us = fetch_us_data(us_ticker, start_date_us.strftime("%Y%m%d"), end_date_us.strftime("%Y%m%d"), fetch_int_us)
 
         if df_us.empty:
             st.error("데이터를 찾을 수 없습니다.")
         elif interval_us_sel == "일/주/월/연봉 종합분석":
             st.success(f"'{us_ticker}' 전체 구간(일/주/월/년) 입체 분석")
             df_d, df_w, df_m, df_y = _get_multi_timeframe(us_ticker, df_us)
-            t1, t2, t3, t4, t5 = st.tabs([" 종합 리포트", "📅 일봉", "📅 주봉", "📅 월봉", "📅 연봉"])
+            t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "📅 일봉", "📅 주봉", "📅 월봉", "📅 연봉"])
             name_display = selected_us_name if us_name_to_ticker else us_ticker
             with t1:
                 render_multi_ai_content(us_ticker, name_display, "US", "USD", {"Daily": df_d, "Weekly": df_w, "Monthly": df_m, "Yearly": df_y}, [])
@@ -1221,6 +1248,21 @@ with tab_us_indie:
                 run_analysis_and_prompts(df_m, us_ticker, name_display, "US", "USD", "월봉", key_suffix="us_m")
             with t5:
                 run_analysis_and_prompts(df_y, us_ticker, name_display, "US", "USD", "연봉", key_suffix="us_y")
+        elif interval_us_sel == "시간/분봉 종합분석":
+            st.success(f"'{us_ticker}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석")
+            df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(us_ticker, df_us)
+            t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
+            name_display = selected_us_name if us_name_to_ticker else us_ticker
+            with t1:
+                render_multi_ai_content(us_ticker, name_display, "US", "USD", {"60min": df_60, "15min": df_15, "5min": df_5, "1min": df_1}, [])
+            with t2:
+                run_analysis_and_prompts(df_60, us_ticker, name_display, "US", "USD", "60분봉", key_suffix="us_60m")
+            with t3:
+                run_analysis_and_prompts(df_15, us_ticker, name_display, "US", "USD", "15분봉", key_suffix="us_15m")
+            with t4:
+                run_analysis_and_prompts(df_5, us_ticker, name_display, "US", "USD", "5분봉", key_suffix="us_5m")
+            with t5:
+                run_analysis_and_prompts(df_1, us_ticker, name_display, "US", "USD", "1분봉", key_suffix="us_1m")
         else:
             if interval_us_sel in _period_codes_us:
                 p = _period_codes_us[interval_us_sel]
