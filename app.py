@@ -17,7 +17,7 @@ from streamlit_local_storage import LocalStorage
 from ai_client import get_gemini_response
 from date_fragment import date_selector_fragment
 from kis_ws import get_kis_client, get_kis_config
-from kr_ui import render_krx_nxt_ranking, render_krx_ranking
+from kr_ui import render_krx_nxt_ranking, render_krx_ranking, render_stock_nxt_card
 from krx_data import build_name_to_ticker, clamp_intraday_dates, fetch_krx_data, get_krx_mapping, get_krx_mapping_instant
 from prompts import (
     generate_chatgpt_prompt,
@@ -1051,6 +1051,10 @@ with tab_kr_indie:
             elif interval_kr_sel == "일/주/월/연봉 종합분석":
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 전체 구간(일/주/월/년) 입체 분석 (⏱️ {elapsed:.2f}초)")
+                
+                if st.session_state.get("run_krx_nxt"):
+                    render_stock_nxt_card(kr_code, selected_name)
+
                 df_d, df_w, df_m, df_y = _get_multi_timeframe(kr_code, df_kr)
                 t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "📅 일봉", "📅 주봉", "📅 월봉", "📅 연봉"])
                 with t1:
@@ -1067,6 +1071,10 @@ with tab_kr_indie:
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
                 st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 시세로 보정 시도 중 (장 중 한하)")
+                
+                if st.session_state.get("run_krx_nxt"):
+                    render_stock_nxt_card(kr_code, selected_name)
+
                 df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
                 t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
@@ -1089,6 +1097,10 @@ with tab_kr_indie:
                 df_final = calculate_indicators(df_final)
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' {interval_kr_sel} 분석 (⏱️ {elapsed:.2f}초)")
+                
+                if st.session_state.get("run_krx_nxt"):
+                    render_stock_nxt_card(kr_code, selected_name)
+
                 run_analysis_and_prompts(df_final, kr_code, selected_name, market_name, "KRW", interval_kr_sel, key_suffix="kr_single", selected_data=extra_data_sel)
         except Exception as e:
             st.error(f"오류 발생: {e}\n```\n{traceback.format_exc()}\n```")
