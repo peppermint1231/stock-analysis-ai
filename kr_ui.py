@@ -585,6 +585,21 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         c3.metric("거래량", f"{nav['vol']:,.0f} 주" if nav["vol"] > 0 else "—")
         c4.metric("거래대금", f"{nav['val']/1e8:,.1f} 억원" if nav["val"] > 0 else "—")
 
+        inv = _get_naver_investor_data(code)
+        if inv and inv.get("date"):
+            st.markdown(f"**📈 주체별 순매수 동향 (기준: {inv['date']})**")
+            i1, i2, i3 = st.columns(3)
+            
+            def _color_val(val):
+                if val > 0: return f"<span style='color:#D32F2F; font-weight:bold;'>+{val:,.0f}</span>"
+                if val < 0: return f"<span style='color:#1976D2; font-weight:bold;'>{val:,.0f}</span>"
+                return "0"
+
+            i1.markdown(f"**🧑 개인**: {_color_val(inv['개인'])} 주", unsafe_allow_html=True)
+            i2.markdown(f"**🌍 외국인**: {_color_val(inv['외국인'])} 주", unsafe_allow_html=True)
+            i3.markdown(f"**🏛️ 기관**: {_color_val(inv['기관'])} 주", unsafe_allow_html=True)
+        st.text("")
+
     st.markdown("**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · 20분 지연)")
     if nxt_row is not None:
         np = float(nxt_row["현재가"])

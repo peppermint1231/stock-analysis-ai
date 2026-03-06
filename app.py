@@ -133,64 +133,55 @@ def get_major_indices() -> dict:
 
 @st.cache_data(ttl=60)
 def get_kospi_night_futures() -> dict | None:
-    """네이버 금융 시세 페이지에서 KOSPI200 야간선물 현재가/전일대비/등락률을 반환합니다.
-
-    야간선물은 18:00~익일 05:00 만 체결. 장 중(09:00~15:30) 또는 스크래핑 실패 시 None 반환.
-    """
+    """eSignal (https://esignal.co.kr/kospi200-futures-night/) 소켓 API를 폴링하여 KOSPI200 야간선물 데이터를 반환합니다."""
     try:
         import requests
-        from bs4 import BeautifulSoup
+        import json
+        import re
 
-        # Naver Finance sise 지수 페이지 — KSF(KOSPI200 야간선물) 코드 사용
-        url = "https://finance.naver.com/sise/sise_index.naver?code=KSF"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        res = requests.get(url, headers=headers, timeout=5)
-        # 페이지가 EUC-KR 또는 UTF-8 혼용이므로 bytes로 디코딩
-        html = res.content.decode("euc-kr", errors="replace")
-        soup = BeautifulSoup(html, "html.parser")
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://esignal.co.kr",
+            "Origin": "https://esignal.co.kr"
+        }
 
-        # 현재가: #now_value (네이버 sise_index 페이지 확인된 selector)
-        price_tag = soup.select_one("#now_value")
-        if price_tag is None:
-            return None
-        try:
-            price = float(price_tag.get_text(strip=True).replace(",", ""))
-        except ValueError:
-            return None
-        if price == 0:
-            return None
-
-        # 전일대비 / 등락률 — 페이지 body 텍스트에서 파싱
-        diff, pct = 0.0, 0.0
-        # .dn 태그가 있으면 하락, 없으면 상승으로 간주
-        is_down = bool(soup.select_one(".dn"))
-
-        # 전일대비 숫자: 0.97 형태로 span에 들어 있음 (id 없음)
-        for tag in soup.find_all(["span", "em", "strong"]):
-            tid = tag.get("id", "")
-            if tid in ("now_value",):
-                continue
-            txt = tag.get_text(strip=True).replace(",", "").replace("+", "").replace("-", "")
-            try:
-                v = float(txt)
-                if 0 < v < price * 0.1:  # 전일대비 범위 추정 (가격의 10% 미만)
-                    diff = -v if is_down else v
-                    break
-            except ValueError:
-                continue
-
-        # 등락률: .dn 또는 .up 태그 내 % 포함 텍스트
-        for tag in soup.select(".dn, .up"):
-            txt = tag.get_text(strip=True).replace("%", "").replace(",", "").replace("+", "").replace("-", "")
-            try:
-                v = float(txt)
-                if 0 < v < 20:  # 등락률 범위 추정
-                    pct = -v if is_down else v
-                    break
-            except ValueError:
-                continue
-
+        # 1. sid 발급
+        res1 = requests.get('https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling', headers=headers, timeout=5)
+        text = res1.text
+        if "{" not in text: return None
+        data = json.loads(text[text.find("{"):text.rfind("}")+1])
+        sid = data.get("sid")
+        if not sid: return None
+        
+        # 2. 데이터 폴링
+        res2 = requests.get(f'https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling&sid={sid}', headers=headers, timeout=5)
+        
+        match = re.search(r'42\["populate","(.*?)"\]', res2.text.replace('\n', ''))
+        payload_str = None
+        if match:
+            payload_str = match.group(1).replace('\\"', '"')
+        else:
+            messages = res2.text.split('\x1e') if '\x1e' in res2.text else [res2.text]
+            for m in messages:
+                if 'populate' in m:
+                    parts = m.split('["populate","', 1)
+                    if len(parts) > 1:
+                        payload_str = parts[1].rsplit('"]')[0].replace('\\"', '"')
+                        break
+                        
+        if not payload_str: return None
+        
+        info = json.loads(payload_str)
+        price = float(info.get("value", 0))
+        diff = float(info.get("value_diff", 0))
+        value_day = float(info.get("value_day", 1))
+        
+        if price == 0 or value_day == 0: return None
+        
+        pct = (diff / value_day) * 100
+        
         return {"price": price, "diff": diff, "pct": pct}
+        
     except Exception:
         return None
 
@@ -1044,6 +1035,15 @@ with tab_kr_indie:
             s_str = start_date_kr.strftime("%Y%m%d")
             e_str = end_date_kr.strftime("%Y%m%d")
             df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel))
+
+            if st.session_state.get("run_krx_nxt") and not df_kr.empty:
+                from krx_data import get_nxt_ranking
+                nxt_df = get_nxt_ranking(rows=200)
+                if not nxt_df.empty and kr_code in nxt_df.index:
+                    nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
+                    if nxt_vol > 0:
+                        last_idx = df_kr.index[-1]
+                        df_kr.at[last_idx, "Volume"] += nxt_vol
 
         try:
             if df_kr.empty:
