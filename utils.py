@@ -96,5 +96,13 @@ def resample_ohlcv(df, period):
     
     resampled = df.resample(period).agg(existing_agg)
     resampled = resampled.dropna() # Remove empty periods
-    
+
+    # Cap future dates to the last date in the original dataframe
+    if not resampled.empty and not df.empty:
+        last_orig_date = df.index[-1]
+        if resampled.index[-1] > last_orig_date:
+            idx = resampled.index.tolist()
+            idx[-1] = last_orig_date
+            resampled.index = pd.DatetimeIndex(idx)
+            
     return resampled
