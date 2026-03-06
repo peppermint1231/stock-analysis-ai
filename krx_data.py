@@ -229,6 +229,52 @@ def _to_kst(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _fetch_naver_realtime_price(code: str) -> dict | None:
+    """네이버 금융 폴링 API에서 특정 종목의 실시간 현재가/시가/고가/저가를 가져옵니다.
+
+    Returns:
+        dict with keys: current, open, high, low  (float values)
+        None if fetch fails or market is closed.
+    """
+    kst = timezone(timedelta(hours=9))
+    now = datetime.now(tz=kst)
+    # 장 시간 외(09:00 ~ 15:35)는 보정하지 않음
+    if not (now.weekday() < 5 and 9 <= now.hour < 15 or (now.hour == 15 and now.minute <= 35)):
+        return None
+
+    try:
+        url = f"https://polling.finance.naver.com/api/realtime?query=SERVICE_REALTIME_STOCK_TICKS:{code}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = requests.get(url, headers=headers, timeout=3)
+        data = resp.json()
+        # 응답 구조: {"resultCode":"success", "result":{"SERVICE_REALTIME_STOCK_TICKS:{code}": {...}}}
+        inner = data.get("result", {}).get(f"SERVICE_REALTIME_STOCK_TICKS:{code}", {})
+        datas = inner.get("datas", [])
+        if not datas:
+            return None
+        item = datas[0]
+
+        def _f(key: str) -> float | None:
+            val = item.get(key)
+            if val is None:
+                return None
+            try:
+                return float(str(val).replace(",", ""))
+            except (ValueError, TypeError):
+                return None
+
+        current = _f("closePrice") or _f("nv")  # 현재가
+        open_p  = _f("openPrice")  or _f("ov")   # 시가
+        high_p  = _f("highPrice")  or _f("hv")   # 고가
+        low_p   = _f("lowPrice")   or _f("lv")   # 저가
+
+        if current is None:
+            return None
+        return {"current": current, "open": open_p, "high": high_p, "low": low_p}
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list | tuple) -> tuple[pd.DataFrame, str]:
     """KRX 종목 OHLCV 데이터를 반환합니다. (ticker_code, market_name)"""
@@ -257,6 +303,23 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
             df = yf.download(yf_ticker, start=start_d, end=end_d + timedelta(days=1), interval=fetch_int, progress=False)
             df = _flatten_multiindex(df, yf_ticker)
             df = _to_kst(df)
+
+            # ── 마지막 봉 실시간 보정 (네이버 금융 폴링 API) ──────────────────────────
+            # yfinance는 구조적으로 15~20분 지연된 데이터를 제공합니다.
+            # 최신 봉(오늘 장 중)만 네이버 실시간 시세로 덮어씌워 지연을 최소화합니다.
+            if not df.empty:
+                rt = _fetch_naver_realtime_price(code)
+                if rt is not None:
+                    last_idx = df.index[-1]
+                    kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
+                    # 마지막 봉이 오늘 날짜인 경우에만 보정
+                    if last_idx.date() == kst_now.date():
+                        if rt["current"] is not None:
+                            df.at[last_idx, "Close"] = rt["current"]
+                        if rt["high"] is not None:
+                            df.at[last_idx, "High"] = max(float(df.at[last_idx, "High"]), rt["high"])
+                        if rt["low"] is not None:
+                            df.at[last_idx, "Low"] = min(float(df.at[last_idx, "Low"]), rt["low"])
         else:
             safe_end = datetime.today().strftime("%Y-%m-%d")
             start_fdr = f"{s_str[:4]}-{s_str[4:6]}-{s_str[6:]}"

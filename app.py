@@ -133,58 +133,62 @@ def get_major_indices() -> dict:
 
 @st.cache_data(ttl=60)
 def get_kospi_night_futures() -> dict | None:
-    """네이버 금융에서 코스피 야간선물(KOSPI200 야간) 현재가/전일대비/등락률을 반환합니다.
+    """네이버 금융 시세 페이지에서 KOSPI200 야간선물 현재가/전일대비/등락률을 반환합니다.
 
-    장 시간 외(18:00 ~ 익일 05:00)에만 체결 데이터가 있습니다.
-    데이터가 없거나 스크래핑 실패 시 None을 반환합니다.
+    야간선물은 18:00~익일 05:00 만 체결. 장 중(09:00~15:30) 또는 스크래핑 실패 시 None 반환.
     """
-    import re
     try:
         import requests
         from bs4 import BeautifulSoup
 
-        # 네이버 금융 야간선물 페이지 (KOSPI200 미니선물 야간)
-        url = "https://finance.naver.com/futures/now.naver?symbol=KSF"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        # Naver Finance sise 지수 페이지 — KSF(KOSPI200 야간선물) 코드 사용
+        url = "https://finance.naver.com/sise/sise_index.naver?code=KSF"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
+        # 페이지가 EUC-KR 또는 UTF-8 혼용이므로 bytes로 디코딩
+        html = res.content.decode("euc-kr", errors="replace")
+        soup = BeautifulSoup(html, "html.parser")
 
-        # 현재가
-        price_tag = soup.select_one("#now")
-        if price_tag is None:
-            # 대체 선택자 시도
-            price_tag = soup.select_one(".tit_area .num")
+        # 현재가: #now_value (네이버 sise_index 페이지 확인된 selector)
+        price_tag = soup.select_one("#now_value")
         if price_tag is None:
             return None
-
-        price_str = price_tag.get_text(strip=True).replace(",", "")
-        price = float(price_str)
+        try:
+            price = float(price_tag.get_text(strip=True).replace(",", ""))
+        except ValueError:
+            return None
         if price == 0:
             return None
 
-        # 전일대비 / 등락률
+        # 전일대비 / 등락률 — 페이지 body 텍스트에서 파싱
         diff, pct = 0.0, 0.0
-        diff_tag = soup.select_one("#change")
-        if diff_tag:
-            diff_text = diff_tag.get_text(strip=True).replace(",", "").replace("+", "")
-            try:
-                diff = float(diff_text)
-            except Exception:
-                pass
+        # .dn 태그가 있으면 하락, 없으면 상승으로 간주
+        is_down = bool(soup.select_one(".dn"))
 
-        pct_tag = soup.select_one("#rate")
-        if pct_tag:
-            pct_text = pct_tag.get_text(strip=True).replace("%", "").replace("+", "").replace(",", "")
+        # 전일대비 숫자: 0.97 형태로 span에 들어 있음 (id 없음)
+        for tag in soup.find_all(["span", "em", "strong"]):
+            tid = tag.get("id", "")
+            if tid in ("now_value",):
+                continue
+            txt = tag.get_text(strip=True).replace(",", "").replace("+", "").replace("-", "")
             try:
-                pct = float(pct_text)
-            except Exception:
-                pass
+                v = float(txt)
+                if 0 < v < price * 0.1:  # 전일대비 범위 추정 (가격의 10% 미만)
+                    diff = -v if is_down else v
+                    break
+            except ValueError:
+                continue
 
-        # 등락 방향(하락 시 음수)
-        down_tag = soup.select_one(".dn") or soup.select_one(".blind")
-        if down_tag and "하락" in down_tag.get_text(strip=True):
-            diff = -abs(diff)
-            pct = -abs(pct)
+        # 등락률: .dn 또는 .up 태그 내 % 포함 텍스트
+        for tag in soup.select(".dn, .up"):
+            txt = tag.get_text(strip=True).replace("%", "").replace(",", "").replace("+", "").replace("-", "")
+            try:
+                v = float(txt)
+                if 0 < v < 20:  # 등락률 범위 추정
+                    pct = -v if is_down else v
+                    break
+            except ValueError:
+                continue
 
         return {"price": price, "diff": diff, "pct": pct}
     except Exception:
@@ -624,11 +628,20 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
         )
 
     start_dt_str = end_dt_str = "알 수 없음"
-    df_daily = dfs.get("Daily", pd.DataFrame())
-    if not df_daily.empty:
-        start_dt_str = df_daily.index.min().strftime("%Y-%m-%d %H:%M")
-        end_dt_str = df_daily.index.max().strftime("%Y-%m-%d %H:%M")
-        st.dataframe(df_daily)
+    # Daily 또는 인트라데이(60min, 15min 등) 중 첫 번째 유효 DF를 기준으로 기간 표시
+    _ref_df = dfs.get("Daily") or next((v for v in dfs.values() if not v.empty), pd.DataFrame())
+    if not _ref_df.empty:
+        start_dt_str = _ref_df.index.min().strftime("%Y-%m-%d %H:%M")
+        end_dt_str   = _ref_df.index.max().strftime("%Y-%m-%d %H:%M")
+
+    # 각 타임프레임 데이터테이블 표시
+    _LABEL_MAP = {"Daily": "일봉", "Weekly": "주봉", "Monthly": "월봉", "Yearly": "연봉",
+                  "60min": "60분봉", "15min": "15분봉", "5min": "5분봉", "1min": "1분봉"}
+    for _tf_key, _tf_df in dfs.items():
+        if not _tf_df.empty:
+            _lbl = _LABEL_MAP.get(_tf_key, _tf_key)
+            with st.expander(f"📋 {_lbl} 데이터 ({len(_tf_df)}개)", expanded=False):
+                st.dataframe(_tf_df.sort_index(ascending=False).style.format("{:,.2f}"), height=250)
 
     st.subheader("🤖 AI 종합 분석 리포트 (Multi-Timeframe)")
     try:
@@ -698,7 +711,7 @@ def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label,
             if days_diff < 28:
                 period_str = f"{days_diff}일"
 
-    st.success(f"{period_str}의 분석기간 ({start_dt.strftime('%Y-%m-%d')} - {end_dt.strftime('%Y-%m-%d')}), {len(df)}개 데이터 추출.")
+    st.success(f"{period_str}의 분석기간 ({start_dt.strftime('%Y-%m-%d %H:%M')} ~ {end_dt.strftime('%Y-%m-%d %H:%M')}), {len(df)}개 데이터")
 
     if ranks:
         r_cols = st.columns(len(ranks))
@@ -885,7 +898,7 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
     return df_d, df_w, df_m, df_y
 
 
-@st.cache_data(ttl=600, show_spinner="멀티 분봉 데이터 준비 중...")
+@st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
 def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
     df_1m = df_1m.sort_index()
     df_60 = calculate_indicators(resample_ohlcv(df_1m, "60min"))
@@ -1053,6 +1066,7 @@ with tab_kr_indie:
             elif interval_kr_sel == "시간/분봉 종합분석":
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
+                st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 시세로 보정 시도 중 (장 중 한하)")
                 df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
                 t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
@@ -1078,13 +1092,6 @@ with tab_kr_indie:
                 run_analysis_and_prompts(df_final, kr_code, selected_name, market_name, "KRW", interval_kr_sel, key_suffix="kr_single", selected_data=extra_data_sel)
         except Exception as e:
             st.error(f"오류 발생: {e}\n```\n{traceback.format_exc()}\n```")
-        else:
-            # 실시간 차트
-            render_realtime_chart(kr_code, currency="KRW", key_prefix="kr")
-
-        # KRX+NXT 통합 분석 카드 (통합 디스플레이 모드일 때)
-        if st.session_state.get("run_krx_nxt"):
-            render_stock_nxt_card(kr_code, selected_name)
 
 
 # ─── US Tabs ────────────────────────────────────────────────────────────────────
@@ -1250,6 +1257,7 @@ with tab_us_indie:
                 run_analysis_and_prompts(df_y, us_ticker, name_display, "US", "USD", "연봉", key_suffix="us_y")
         elif interval_us_sel == "시간/분봉 종합분석":
             st.success(f"'{us_ticker}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석")
+            st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. US 주식은 실시간 보정이 제공되지 않습니다.")
             df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(us_ticker, df_us)
             t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
             name_display = selected_us_name if us_name_to_ticker else us_ticker
@@ -1275,6 +1283,4 @@ with tab_us_indie:
             st.success(f"'{name_display}' {interval_us_sel} 분석 (⏱️ {elapsed:.2f}초)")
             run_analysis_and_prompts(df_final, us_ticker, name_display, "US", "USD", interval_us_sel, key_suffix="us_single")
 
-        # 실시간 차트 (네임에러 방지: run_us 블록 안에서 호출)
-        if us_ticker:
-            render_realtime_chart(us_ticker, currency="USD", key_prefix="us")
+
