@@ -1073,6 +1073,14 @@ with tab_kr_indie:
                 st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 시세로 보정 시도 중 (장 중 한하)")
                 
                 if st.session_state.get("run_krx_nxt"):
+                    from krx_data import get_nxt_ranking
+                    nxt_df = get_nxt_ranking(rows=200)
+                    if not nxt_df.empty and kr_code in nxt_df.index:
+                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
+                        if nxt_vol > 0 and not df_kr.empty:
+                            last_idx = df_kr.index[-1]
+                            df_kr.at[last_idx, "Volume"] += nxt_vol
+                            
                     render_stock_nxt_card(kr_code, selected_name)
 
                 df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
@@ -1099,6 +1107,14 @@ with tab_kr_indie:
                 st.success(f"'{selected_name}' {interval_kr_sel} 분석 (⏱️ {elapsed:.2f}초)")
                 
                 if st.session_state.get("run_krx_nxt"):
+                    from krx_data import get_nxt_ranking
+                    nxt_df = get_nxt_ranking(rows=200)
+                    if not nxt_df.empty and kr_code in nxt_df.index:
+                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
+                        if nxt_vol > 0 and not df_final.empty:
+                            last_idx = df_final.index[-1]
+                            df_final.at[last_idx, "Volume"] += nxt_vol
+                            
                     render_stock_nxt_card(kr_code, selected_name)
 
                 run_analysis_and_prompts(df_final, kr_code, selected_name, market_name, "KRW", interval_kr_sel, key_suffix="kr_single", selected_data=extra_data_sel)

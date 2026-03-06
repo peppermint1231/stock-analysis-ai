@@ -528,25 +528,31 @@ def render_krx_nxt_ranking(
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_naver_realtime(code: str) -> dict:
-    """네이버 금융 sise 페이지에서 실시간 시세를 가져옵니다 (30초 캐시)."""
-    import requests as _req
-    from bs4 import BeautifulSoup as _BS
+    import requests
+    from bs4 import BeautifulSoup
     try:
         url = f"https://finance.naver.com/item/sise.naver?code={code}"
-        res = _req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        soup = _BS(res.text, "html.parser")
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        html = res.content.decode("euc-kr", errors="replace")
+        soup = BeautifulSoup(html, "html.parser")
 
-        def _n(sel):
-            e = soup.select_one(sel)
-            if not e: return 0.0
-            try: return float(e.get_text(strip=True).replace(",", "").replace("+", "").replace("%", ""))
+        import re
+        def _ext(sel):
+            t = soup.select_one(sel)
+            if not t: return 0.0
+            text = t.get_text(strip=True)
+            m = re.sub(r'[^0-9.]', '', text)
+            try: return float(m) if m else 0.0
             except ValueError: return 0.0
 
-        p = _n("#_nowVal")
+        is_down = bool(soup.select_one(".dn"))
+        p = _ext("#_nowVal")
+        diff = -_ext("#_diff") if is_down else _ext("#_diff")
+        rate = -_ext("#_rate") if is_down else _ext("#_rate")
+
         return {
-            "price": p, "diff": -abs(_n("#_diff")) if soup.select_one(".dn") else abs(_n("#_diff")),
-            "rate": -abs(_n("#_rate")) if soup.select_one(".dn") else abs(_n("#_rate")),
-            "vol": _n("#quant"), "val": _n("#trade_val") * 1_000_000,
+            "price": p, "diff": diff, "rate": rate,
+            "vol": _ext("#_quant"), "val": _ext("#_amount") * 1_000_000,
             "ok": p > 0
         }
     except Exception:
@@ -576,7 +582,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        st.markdown("**📡 네이버 금융 실시간** (KRX+NXT 통합 최선가 · 약 30초 지연)")
+        st.markdown(f"**📡 [네이버 금융 실시간](https://finance.naver.com/item/main.naver?code={code})** (KRX+NXT 통합 최선가 · 약 30초 지연)")
         c1, c2, c3, c4 = st.columns(4)
         sq = "+" if nav["rate"] > 0 else ""
         ar = "▲" if nav["rate"] > 0 else ("▼" if nav["rate"] < 0 else "—")
