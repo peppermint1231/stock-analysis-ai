@@ -180,7 +180,14 @@ def get_kospi_night_futures() -> dict | None:
         
         pct = (diff / value_day) * 100
         
-        return {"price": price, "diff": diff, "pct": pct}
+        # eSignal payload ttime is usually HHMMSS e.g 183205
+        # or unix_timestamp
+        ttime = str(info.get("ttime", ""))
+        time_str = ""
+        if len(ttime) >= 4:
+            time_str = f"{ttime[:2]}:{ttime[2:4]}"
+        
+        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
         
     except Exception:
         return None
@@ -235,6 +242,9 @@ def _render_sidebar() -> None:
     night = get_kospi_night_futures()
     st.sidebar.markdown(f"**[🌙 KOSPI 야간선물]({night_url})**")
     if night:
+        nt = night.get("time", "")
+        time_lbl = f" (기준: {nt})" if nt else ""
+        st.sidebar.caption(time_lbl)
         pct_sign = "+" if night["pct"] >= 0 else ""
         diff_sign = "+" if night["diff"] >= 0 else ""
         st.sidebar.metric(

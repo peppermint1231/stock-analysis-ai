@@ -312,14 +312,24 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
                 if rt is not None:
                     last_idx = df.index[-1]
                     kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
-                    # 마지막 봉이 오늘 날짜인 경우에만 보정
+                    
                     if last_idx.date() == kst_now.date():
-                        if rt["current"] is not None:
-                            df.at[last_idx, "Close"] = rt["current"]
-                        if rt["high"] is not None:
-                            df.at[last_idx, "High"] = max(float(df.at[last_idx, "High"]), rt["high"])
-                        if rt["low"] is not None:
-                            df.at[last_idx, "Low"] = min(float(df.at[last_idx, "Low"]), rt["low"])
+                        curr = rt["current"] if rt["current"] is not None else df.at[last_idx, "Close"]
+                        current_minute = kst_now.replace(second=0, microsecond=0)
+                        
+                        if current_minute > last_idx:
+                            new_row = pd.DataFrame({
+                                "Open": [curr], "High": [curr], "Low": [curr],
+                                "Close": [curr], "Volume": [0]
+                            }, index=[current_minute])
+                            df = pd.concat([df, new_row])
+                        else:
+                            if rt["current"] is not None:
+                                df.at[last_idx, "Close"] = rt["current"]
+                            if rt["high"] is not None:
+                                df.at[last_idx, "High"] = max(float(df.at[last_idx, "High"]), rt["high"])
+                            if rt["low"] is not None:
+                                df.at[last_idx, "Low"] = min(float(df.at[last_idx, "Low"]), rt["low"])
         else:
             safe_end = datetime.today().strftime("%Y-%m-%d")
             start_fdr = f"{s_str[:4]}-{s_str[4:6]}-{s_str[6:]}"
