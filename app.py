@@ -619,8 +619,10 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
         )
 
     start_dt_str = end_dt_str = "알 수 없음"
-    # Daily 또는 인트라데이(60min, 15min 등) 중 첫 번째 유효 DF를 기준으로 기간 표시
-    _ref_df = dfs.get("Daily") or next((v for v in dfs.values() if not v.empty), pd.DataFrame())
+    # Daily 또는 인트라데이 중 첫 번째 유효 DF를 기준으로 기간 표시
+    _daily_df = dfs.get("Daily")
+    _ref_df = _daily_df if _daily_df is not None and not _daily_df.empty else next((v for v in dfs.values() if not v.empty), pd.DataFrame())
+    
     if not _ref_df.empty:
         start_dt_str = _ref_df.index.min().strftime("%Y-%m-%d %H:%M")
         end_dt_str   = _ref_df.index.max().strftime("%Y-%m-%d %H:%M")
