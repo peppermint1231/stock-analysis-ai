@@ -191,7 +191,7 @@ _SIDEBAR_URLS = {
     "🇺🇸 NASDAQ": "https://finance.naver.com/world/sise.naver?symbol=NAS@IXIC",
     "🇰🇷 KOSPI": "https://finance.naver.com/sise/sise_index.naver?code=KOSPI",
     "🇰🇷 KOSDAQ": "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ",
-    "🌙 KOSPI 야간선물": "https://finance.naver.com/futures/now.naver?symbol=KSF",
+    "🌙 KOSPI 야간선물": "https://esignal.co.kr/kospi200-futures-night/",
     "💵 USD/KRW": "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW",
     "🥇 Gold": "https://finance.naver.com/marketindex/materialDetail.naver?marketindexCd=CMDT_GC",
     "🥈 Silver": "https://finance.naver.com/marketindex/materialDetail.naver?marketindexCd=CMDT_SI",
