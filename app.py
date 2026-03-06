@@ -1046,7 +1046,8 @@ with tab_kr_indie:
             start_date_kr = clamp_intraday_dates(fetch_int_kr, start_date_kr, end_date_kr)
             s_str = start_date_kr.strftime("%Y%m%d")
             e_str = end_date_kr.strftime("%Y%m%d")
-            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel))
+            run_nxt = st.session_state.get("run_krx_nxt", False)
+            df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel), include_nxt=run_nxt)
 
             if st.session_state.get("run_krx_nxt") and not df_kr.empty:
                 from krx_data import get_nxt_ranking

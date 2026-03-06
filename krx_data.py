@@ -276,7 +276,7 @@ def _fetch_naver_realtime_price(code: str) -> dict | None:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list | tuple) -> tuple[pd.DataFrame, str]:
+def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data: list | tuple, include_nxt: bool = False) -> tuple[pd.DataFrame, str]:
     """KRX 종목 OHLCV 데이터를 반환합니다. (ticker_code, market_name)"""
     import FinanceDataReader as fdr
 
@@ -308,28 +308,31 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
             # yfinance는 구조적으로 15~20분 지연된 데이터를 제공합니다.
             # 최신 봉(오늘 장 중)만 네이버 실시간 시세로 덮어씌워 지연을 최소화합니다.
             if not df.empty:
-                rt = _fetch_naver_realtime_price(code)
-                if rt is not None:
-                    last_idx = df.index[-1]
-                    kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
-                    
-                    if last_idx.date() == kst_now.date():
-                        curr = rt["current"] if rt["current"] is not None else df.at[last_idx, "Close"]
-                        current_minute = kst_now.replace(second=0, microsecond=0)
-                        
-                        if current_minute > last_idx:
-                            new_row = pd.DataFrame({
-                                "Open": [curr], "High": [curr], "Low": [curr],
-                                "Close": [curr], "Volume": [0]
-                            }, index=[current_minute])
-                            df = pd.concat([df, new_row])
-                        else:
-                            if rt["current"] is not None:
-                                df.at[last_idx, "Close"] = rt["current"]
-                            if rt["high"] is not None:
-                                df.at[last_idx, "High"] = max(float(df.at[last_idx, "High"]), rt["high"])
-                            if rt["low"] is not None:
-                                df.at[last_idx, "Low"] = min(float(df.at[last_idx, "Low"]), rt["low"])
+                # include_nxt가 False이면 장 종료 후(15:40 이후)에는 실시간 보정/추가를 생략함
+                kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
+                is_market_open = (kst_now.hour < 15 or (kst_now.hour == 15 and kst_now.minute <= 40))
+                
+                if include_nxt or is_market_open:
+                    rt = _fetch_naver_realtime_price(code)
+                    if rt is not None:
+                        last_idx = df.index[-1]
+                        if last_idx.date() == kst_now.date():
+                            curr = rt["current"] if rt["current"] is not None else df.at[last_idx, "Close"]
+                            current_minute = kst_now.replace(second=0, microsecond=0)
+                            
+                            if current_minute > last_idx:
+                                new_row = pd.DataFrame({
+                                    "Open": [curr], "High": [curr], "Low": [curr],
+                                    "Close": [curr], "Volume": [0]
+                                }, index=[current_minute])
+                                df = pd.concat([df, new_row])
+                            else:
+                                if rt["current"] is not None:
+                                    df.at[last_idx, "Close"] = rt["current"]
+                                if rt["high"] is not None:
+                                    df.at[last_idx, "High"] = max(float(df.at[last_idx, "High"]), rt["high"])
+                                if rt["low"] is not None:
+                                    df.at[last_idx, "Low"] = min(float(df.at[last_idx, "Low"]), rt["low"])
         else:
             safe_end = datetime.today().strftime("%Y-%m-%d")
             start_fdr = f"{s_str[:4]}-{s_str[4:6]}-{s_str[6:]}"
@@ -345,7 +348,9 @@ def fetch_krx_data(code: str, s_str: str, e_str: str, interval: str, extra_data:
             if interval in ("일/주/월/연봉 종합분석", "일봉 (Daily)"):
                 kst = timezone(timedelta(hours=9))
                 now_kst = datetime.now(tz=kst).replace(tzinfo=None)
-                if df.index[-1].date() == now_kst.date():
+                # 장 중(15:40 이전) 또는 NXT 포함 분석인 경우에만 마지막 일봉의 시간을 '현재'로 보정합니다.
+                is_market_open = (now_kst.hour < 15 or (now_kst.hour == 15 and now_kst.minute <= 40))
+                if (include_nxt or is_market_open) and df.index[-1].date() == now_kst.date():
                     idx = df.index.tolist()
                     idx[-1] = now_kst
                     df.index = pd.DatetimeIndex(idx)
