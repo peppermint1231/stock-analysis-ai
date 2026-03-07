@@ -760,128 +760,128 @@ def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label,
 
 @st.fragment
 def render_krx_inputs_fragment(sorted_names, name_to_ticker, default_index):
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        pill_val = st.session_state.get("kr_pill_clicked_val")
-
-        if name_to_ticker:
-            if "kr_select_box" not in st.session_state:
-                st.session_state["kr_select_box"] = sorted_names[default_index] if sorted_names else None
-            if pill_val and pill_val in sorted_names:
-                st.session_state["kr_select_box"] = pill_val
-                st.session_state["kr_pill_clicked_val"] = None
-            st.selectbox("종목 선택 (이름으로 검색)", sorted_names, key="kr_select_box")
-        else:
-            if "kr_code_input" not in st.session_state:
-                st.session_state["kr_code_input"] = pill_val or "005930"
-            elif pill_val:
-                st.session_state["kr_code_input"] = pill_val
-                st.session_state["kr_pill_clicked_val"] = None
-            st.text_input("종목 코드 입력 (예: 005930)", key="kr_code_input")
-
-        ls_kr = localS.getItem("recent_kr")
-        if ls_kr is not None and isinstance(ls_kr, list):
-            st.session_state["recent_kr"] = ls_kr
-        elif "recent_kr" not in st.session_state:
-            st.session_state["recent_kr"] = []
-
-        def _clear_kr():
-            st.session_state["recent_kr"] = []
-            localS.setItem("recent_kr", [])
-
-        if st.session_state["recent_kr"]:
-            st.write("최근 검색 (Recent):")
-            c_rec, c_del = st.columns([0.85, 0.15])
-            with c_rec:
-                sel_pill = st.pills("Recent KRX", st.session_state["recent_kr"], selection_mode="single", key="pills_kr", label_visibility="collapsed")
-            with c_del:
-                st.button("🗑️", on_click=_clear_kr, help="기록 삭제", key="btn_clear_kr")
-            if sel_pill:
-                if name_to_ticker and sel_pill in sorted_names and sel_pill != st.session_state.get("kr_select_box"):
-                    st.session_state["kr_pill_clicked_val"] = sel_pill
-                    st.session_state["run_krx"] = True
-                    st.rerun()
-                elif not name_to_ticker and sel_pill != st.session_state.get("kr_code_input"):
-                    st.session_state["kr_pill_clicked_val"] = sel_pill
-                    st.rerun()
-
-    with col2:
-        st.pills(
-            "분석간격",
-            ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
-             "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
-            default="일/주/월/연봉 종합분석",
-            selection_mode="single",
-            key="kr_int",
-        )
-        extra_opts = ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"]
-        st.multiselect("데이터 항목 선택 (Data Selection)", extra_opts, default=extra_opts, key="kr_data_sel")
-
+    # 1. 분석간격 (+기간 직접 설정)
+    st.pills(
+        "분석간격",
+        ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
+         "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
+        default="일/주/월/연봉 종합분석",
+        selection_mode="single",
+        key="kr_int",
+    )
     interval_kr_sel = st.session_state.get("kr_int", "일/주/월/연봉 종합분석")
     default_end = datetime.today()
     date_selector_fragment("kr", default_end - timedelta(days=365), default_end, interval_kr_sel)
 
+    # 2. 데이터 항목 선택
+    extra_opts = ["기본 시세 (OHLCV)", "기술적 지표 (Indicators)", "펀더멘털 (Fundamental)", "수급 (Investor)", "시가총액 (Market Cap)"]
+    st.multiselect("데이터 항목 선택 (Data Selection)", extra_opts, default=extra_opts, key="kr_data_sel")
+
+    # 3. 종목 선택
+    pill_val = st.session_state.get("kr_pill_clicked_val")
+
+    if name_to_ticker:
+        if "kr_select_box" not in st.session_state:
+            st.session_state["kr_select_box"] = sorted_names[default_index] if sorted_names else None
+        if pill_val and pill_val in sorted_names:
+            st.session_state["kr_select_box"] = pill_val
+            st.session_state["kr_pill_clicked_val"] = None
+        st.selectbox("종목 선택 (이름으로 검색)", sorted_names, key="kr_select_box")
+    else:
+        if "kr_code_input" not in st.session_state:
+            st.session_state["kr_code_input"] = pill_val or "005930"
+        elif pill_val:
+            st.session_state["kr_code_input"] = pill_val
+            st.session_state["kr_pill_clicked_val"] = None
+        st.text_input("종목 코드 입력 (예: 005930)", key="kr_code_input")
+
+    # 4. 최근 검색
+    ls_kr = localS.getItem("recent_kr")
+    if ls_kr is not None and isinstance(ls_kr, list):
+        st.session_state["recent_kr"] = ls_kr
+    elif "recent_kr" not in st.session_state:
+        st.session_state["recent_kr"] = []
+
+    def _clear_kr():
+        st.session_state["recent_kr"] = []
+        localS.setItem("recent_kr", [])
+
+    if st.session_state["recent_kr"]:
+        st.write("최근 검색 (Recent):")
+        c_rec, c_del = st.columns([0.85, 0.15])
+        with c_rec:
+            sel_pill = st.pills("Recent KRX", st.session_state["recent_kr"], selection_mode="single", key="pills_kr", label_visibility="collapsed")
+        with c_del:
+            st.button("🗑️", on_click=_clear_kr, help="기록 삭제", key="btn_clear_kr")
+        if sel_pill:
+            if name_to_ticker and sel_pill in sorted_names and sel_pill != st.session_state.get("kr_select_box"):
+                st.session_state["kr_pill_clicked_val"] = sel_pill
+                st.session_state["run_krx"] = True
+                st.rerun()
+            elif not name_to_ticker and sel_pill != st.session_state.get("kr_code_input"):
+                st.session_state["kr_pill_clicked_val"] = sel_pill
+                st.rerun()
+
 
 @st.fragment
 def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        pill_val = st.session_state.get("us_pill_clicked_val")
-
-        if us_name_to_ticker:
-            if "us_select_box" not in st.session_state:
-                st.session_state["us_select_box"] = us_sorted_names[default_idx] if us_sorted_names else None
-            if pill_val and pill_val in us_sorted_names:
-                st.session_state["us_select_box"] = pill_val
-                st.session_state["us_pill_clicked_val"] = None
-            st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, key="us_select_box")
-        else:
-            if "us_ticker_input" not in st.session_state:
-                st.session_state["us_ticker_input"] = pill_val or "AAPL"
-            elif pill_val:
-                st.session_state["us_ticker_input"] = pill_val
-                st.session_state["us_pill_clicked_val"] = None
-            st.text_input("티커 입력 (예: AAPL, TSLA)", key="us_ticker_input")
-
-        ls_us = localS.getItem("recent_us")
-        if ls_us is not None and isinstance(ls_us, list):
-            st.session_state["recent_us"] = ls_us
-        elif "recent_us" not in st.session_state:
-            st.session_state["recent_us"] = []
-
-        def _clear_us():
-            st.session_state["recent_us"] = []
-            localS.setItem("recent_us", [])
-
-        if st.session_state["recent_us"]:
-            st.write("최근 검색 (Recent):")
-            c_rec, c_del = st.columns([0.85, 0.15])
-            with c_rec:
-                sel_pill = st.pills("Recent US", st.session_state["recent_us"], selection_mode="single", key="pills_us", label_visibility="collapsed")
-            with c_del:
-                st.button("🗑️", on_click=_clear_us, help="기록 삭제", key="btn_clear_us")
-            if sel_pill:
-                if us_name_to_ticker and sel_pill in us_sorted_names and sel_pill != st.session_state.get("us_select_box"):
-                    st.session_state["us_pill_clicked_val"] = sel_pill
-                    st.session_state["run_us"] = True
-                    st.rerun()
-                elif not us_name_to_ticker and sel_pill != st.session_state.get("us_ticker_input"):
-                    st.session_state["us_pill_clicked_val"] = sel_pill
-                    st.rerun()
-
-    with col2:
-        st.pills(
-            "데이터 간격 (Interval)",
-            ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
-             "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
-            default="일/주/월/연봉 종합분석",
-            selection_mode="single",
-            key="us_int",
-        )
-
+    # 1. 분석간격 (+기간 직접 설정)
+    st.pills(
+        "데이터 간격 (Interval)",
+        ["일/주/월/연봉 종합분석", "시간/분봉 종합분석", "일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)", "연봉 (Yearly)",
+         "1시간 (60 Minute)", "30분 (30 Minute)", "10분 (10 Minute)", "5분 (5 Minute)", "3분 (3 Minute)", "1분 (1 Minute)"],
+        default="일/주/월/연봉 종합분석",
+        selection_mode="single",
+        key="us_int",
+    )
     interval_us_sel = st.session_state.get("us_int", "일/주/월/연봉 종합분석")
     default_end = datetime.today()
     date_selector_fragment("us", default_end - timedelta(days=365), default_end, interval_us_sel)
+
+    # 3. 종목 선택
+    pill_val = st.session_state.get("us_pill_clicked_val")
+
+    if us_name_to_ticker:
+        if "us_select_box" not in st.session_state:
+            st.session_state["us_select_box"] = us_sorted_names[default_idx] if us_sorted_names else None
+        if pill_val and pill_val in us_sorted_names:
+            st.session_state["us_select_box"] = pill_val
+            st.session_state["us_pill_clicked_val"] = None
+        st.selectbox("종목 선택 (S&P 500 목록)", us_sorted_names, key="us_select_box")
+    else:
+        if "us_ticker_input" not in st.session_state:
+            st.session_state["us_ticker_input"] = pill_val or "AAPL"
+        elif pill_val:
+            st.session_state["us_ticker_input"] = pill_val
+            st.session_state["us_pill_clicked_val"] = None
+        st.text_input("티커 입력 (예: AAPL, TSLA)", key="us_ticker_input")
+
+    # 4. 최근 검색
+    ls_us = localS.getItem("recent_us")
+    if ls_us is not None and isinstance(ls_us, list):
+        st.session_state["recent_us"] = ls_us
+    elif "recent_us" not in st.session_state:
+        st.session_state["recent_us"] = []
+
+    def _clear_us():
+        st.session_state["recent_us"] = []
+        localS.setItem("recent_us", [])
+
+    if st.session_state["recent_us"]:
+        st.write("최근 검색 (Recent):")
+        c_rec, c_del = st.columns([0.85, 0.15])
+        with c_rec:
+            sel_pill = st.pills("Recent US", st.session_state["recent_us"], selection_mode="single", key="pills_us", label_visibility="collapsed")
+        with c_del:
+            st.button("🗑️", on_click=_clear_us, help="기록 삭제", key="btn_clear_us")
+        if sel_pill:
+            if us_name_to_ticker and sel_pill in us_sorted_names and sel_pill != st.session_state.get("us_select_box"):
+                st.session_state["us_pill_clicked_val"] = sel_pill
+                st.session_state["run_us"] = True
+                st.rerun()
+            elif not us_name_to_ticker and sel_pill != st.session_state.get("us_ticker_input"):
+                st.session_state["us_pill_clicked_val"] = sel_pill
+                st.rerun()
 
 
 # ─── Multi-Timeframe Helper ───────────────────────────────────────────────────
@@ -905,10 +905,11 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
     df_1m = df_1m.sort_index()
     df_60 = calculate_indicators(resample_ohlcv(df_1m, "60min"))
+    df_30 = calculate_indicators(resample_ohlcv(df_1m, "30min"))
     df_15 = calculate_indicators(resample_ohlcv(df_1m, "15min"))
     df_5 = calculate_indicators(resample_ohlcv(df_1m, "5min"))
     df_1 = calculate_indicators(df_1m)
-    return df_60, df_15, df_5, df_1
+    return df_60, df_30, df_15, df_5, df_1
 
 
 def _push_recent(key: str, value: str, storage_key: str) -> None:
@@ -1054,9 +1055,40 @@ with tab_kr_indie:
                 nxt_df = get_nxt_ranking(rows=200)
                 if not nxt_df.empty and kr_code in nxt_df.index:
                     nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
-                    if nxt_vol > 0:
+                    nxt_price = float(nxt_df.loc[kr_code, "현재가"])
+                    if nxt_price > 0:
+                        kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
                         last_idx = df_kr.index[-1]
-                        df_kr.at[last_idx, "Volume"] += nxt_vol
+                        
+                        # 장 마감 후(15:30 이후) 일 때 NXT 시세로 분봉 추가 또는 최신봉 갱신
+                        if kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30):
+                            current_minute = kst_now.replace(second=0, microsecond=0)
+                            # 인트라데이 차트인 경우
+                            if fetch_int_kr in ["1분 (1 Minute)", "3분 (3 Minute)", "5분 (5 Minute)", "10분 (10 Minute)", "30분 (30 Minute)", "1시간 (60 Minute)"]:
+                                if current_minute > last_idx:
+                                    new_row = pd.DataFrame({
+                                        "Open": [nxt_price], "High": [nxt_price], "Low": [nxt_price],
+                                        "Close": [nxt_price], "Volume": [nxt_vol]
+                                    }, index=[current_minute])
+                                    df_kr = pd.concat([df_kr, new_row])
+                                else:
+                                    df_kr.at[last_idx, "Close"] = nxt_price
+                                    df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), nxt_price)
+                                    df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), nxt_price)
+                                    if nxt_vol > 0:
+                                        df_kr.at[last_idx, "Volume"] += nxt_vol
+                            else:
+                                # 일봉 이상의 차트인 경우 장 마감 후 마지막 캔들 보정
+                                if last_idx.date() == kst_now.date():
+                                    df_kr.at[last_idx, "Close"] = nxt_price
+                                    df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), nxt_price)
+                                    df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), nxt_price)
+                                    if nxt_vol > 0:
+                                        df_kr.at[last_idx, "Volume"] += nxt_vol
+                        else:
+                            # 장 중인 경우 기본적으로 볼륨만 단순 합산
+                            if nxt_vol > 0:
+                                df_kr.at[last_idx, "Volume"] += nxt_vol
 
         try:
             if df_kr.empty:
@@ -1083,30 +1115,24 @@ with tab_kr_indie:
             elif interval_kr_sel == "시간/분봉 종합분석":
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
-                st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 시세로 보정 시도 중 (장 중 한하)")
+                st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 또는 NXT 시세로 보정됩니다.")
                 
                 if st.session_state.get("run_krx_nxt"):
-                    from krx_data import get_nxt_ranking
-                    nxt_df = get_nxt_ranking(rows=200)
-                    if not nxt_df.empty and kr_code in nxt_df.index:
-                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
-                        if nxt_vol > 0 and not df_kr.empty:
-                            last_idx = df_kr.index[-1]
-                            df_kr.at[last_idx, "Volume"] += nxt_vol
-                            
                     render_stock_nxt_card(kr_code, selected_name)
 
-                df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
-                t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
+                df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
+                t1, t2, t3, t4, t5, t6 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 30분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
-                    render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "15min": df_15, "5min": df_5, "1min": df_1}, [])
+                    render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "30min": df_30, "15min": df_15, "5min": df_5, "1min": df_1}, [])
                 with t2:
                     run_analysis_and_prompts(df_60, kr_code, selected_name, market_name, "KRW", "60분봉", key_suffix="kr_60m", selected_data=extra_data_sel)
                 with t3:
-                    run_analysis_and_prompts(df_15, kr_code, selected_name, market_name, "KRW", "15분봉", key_suffix="kr_15m", selected_data=extra_data_sel)
+                    run_analysis_and_prompts(df_30, kr_code, selected_name, market_name, "KRW", "30분봉", key_suffix="kr_30m", selected_data=extra_data_sel)
                 with t4:
-                    run_analysis_and_prompts(df_5, kr_code, selected_name, market_name, "KRW", "5분봉", key_suffix="kr_5m", selected_data=extra_data_sel)
+                    run_analysis_and_prompts(df_15, kr_code, selected_name, market_name, "KRW", "15분봉", key_suffix="kr_15m", selected_data=extra_data_sel)
                 with t5:
+                    run_analysis_and_prompts(df_5, kr_code, selected_name, market_name, "KRW", "5분봉", key_suffix="kr_5m", selected_data=extra_data_sel)
+                with t6:
                     run_analysis_and_prompts(df_1, kr_code, selected_name, market_name, "KRW", "1분봉", key_suffix="kr_1m", selected_data=extra_data_sel)
             else:
                 _period_codes = {"일봉 (Daily)": "D", "주봉 (Weekly)": "W", "월봉 (Monthly)": "ME", "연봉 (Yearly)": "YE"}
@@ -1120,14 +1146,6 @@ with tab_kr_indie:
                 st.success(f"'{selected_name}' {interval_kr_sel} 분석 (⏱️ {elapsed:.2f}초)")
                 
                 if st.session_state.get("run_krx_nxt"):
-                    from krx_data import get_nxt_ranking
-                    nxt_df = get_nxt_ranking(rows=200)
-                    if not nxt_df.empty and kr_code in nxt_df.index:
-                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
-                        if nxt_vol > 0 and not df_final.empty:
-                            last_idx = df_final.index[-1]
-                            df_final.at[last_idx, "Volume"] += nxt_vol
-                            
                     render_stock_nxt_card(kr_code, selected_name)
 
                 run_analysis_and_prompts(df_final, kr_code, selected_name, market_name, "KRW", interval_kr_sel, key_suffix="kr_single", selected_data=extra_data_sel)
@@ -1297,20 +1315,22 @@ with tab_us_indie:
             with t5:
                 run_analysis_and_prompts(df_y, us_ticker, name_display, "US", "USD", "연봉", key_suffix="us_y")
         elif interval_us_sel == "시간/분봉 종합분석":
-            st.success(f"'{us_ticker}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석")
+            st.success(f"'{us_ticker}' 인트라데이 종합구간(60분/30분/15분/5분/1분) 입체 분석")
             st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. US 주식은 실시간 보정이 제공되지 않습니다.")
-            df_60, df_15, df_5, df_1 = _get_multi_intraday_timeframe(us_ticker, df_us)
-            t1, t2, t3, t4, t5 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
+            df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(us_ticker, df_us)
+            t1, t2, t3, t4, t5, t6 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 30분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
             name_display = selected_us_name if us_name_to_ticker else us_ticker
             with t1:
-                render_multi_ai_content(us_ticker, name_display, "US", "USD", {"60min": df_60, "15min": df_15, "5min": df_5, "1min": df_1}, [])
+                render_multi_ai_content(us_ticker, name_display, "US", "USD", {"60min": df_60, "30min": df_30, "15min": df_15, "5min": df_5, "1min": df_1}, [])
             with t2:
                 run_analysis_and_prompts(df_60, us_ticker, name_display, "US", "USD", "60분봉", key_suffix="us_60m")
             with t3:
-                run_analysis_and_prompts(df_15, us_ticker, name_display, "US", "USD", "15분봉", key_suffix="us_15m")
+                run_analysis_and_prompts(df_30, us_ticker, name_display, "US", "USD", "30분봉", key_suffix="us_30m")
             with t4:
-                run_analysis_and_prompts(df_5, us_ticker, name_display, "US", "USD", "5분봉", key_suffix="us_5m")
+                run_analysis_and_prompts(df_15, us_ticker, name_display, "US", "USD", "15분봉", key_suffix="us_15m")
             with t5:
+                run_analysis_and_prompts(df_5, us_ticker, name_display, "US", "USD", "5분봉", key_suffix="us_5m")
+            with t6:
                 run_analysis_and_prompts(df_1, us_ticker, name_display, "US", "USD", "1분봉", key_suffix="us_1m")
         else:
             if interval_us_sel in _period_codes_us:
