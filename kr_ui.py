@@ -116,9 +116,10 @@ def _get_naver_investor_data(ticker: str) -> dict:
 def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_pct: float = 30.0) -> str:
     """주어진 DataFrame으로 가로 캔들 차트 HTML 문자열을 생성합니다."""
     html = (
+        '<style>.hc-card { flex-wrap: nowrap; } @media (max-width: 650px) { .hc-card { flex-wrap: wrap !important; } .hc-investor { flex: 1 1 100% !important; margin-top: 15px !important; } }</style>'
         '<div style="font-family: sans-serif; font-size: 14px; margin-top: 10px;'
         ' margin-bottom: 20px; display: grid;'
-        ' grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 30px;">'
+        ' grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 30px;">'
     )
 
     for ticker in df.index:
@@ -195,11 +196,11 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
             vol_html = f'<div style="font-size:12px;color:#868e96;font-weight:normal;">주 {int(vol):,}</div>' if vol > 0 else ""
 
             html += f"""
-<div style="border:1px solid #e2e8f0;border-radius:12px;padding:20px 15px;background:white;
+<div class="hc-card" style="border:1px solid #e2e8f0;border-radius:12px;padding:20px 15px;background:white;
 box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:15px; flex-wrap: nowrap;">
   <div style="flex:1 1 120px; min-width: 0;">    
     <div style="margin-bottom:25px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;align-items:center;">
-      <div>
+      <div style="word-break: keep-all; line-height: 1.4;">
         {name} <span style="font-size:13px;color:gray;font-weight:normal;">
           ({close_p:,.0f}원 <span style="color:{color};">{c_pct:+.2f}%</span>)
         </span>
@@ -207,7 +208,7 @@ box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:
       {vol_html}
     </div>
     <div style="position:relative;width:100%;height:40px;background-color:#f8f9fa;
-      border-radius:4px;border:1px solid #e9ecef;">
+      border-radius:4px;border:1px solid #e9ecef; margin-top: 10px;">
       <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background-color:#adb5bd;z-index:1;"></div>
       <div style="position:absolute;left:{x_l}%;width:{x_h-x_l}%;top:19px;height:2px;background-color:#495057;z-index:2;"></div>
       <div style="position:absolute;left:{body_left}%;width:{body_width}%;top:8px;height:24px;background-color:{color};border-radius:2px;z-index:3;"></div>
@@ -219,7 +220,7 @@ box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:
       <div style="position:absolute;left:{x_h}%;top:62px;font-size:11px;color:#6c757d;transform:translateX({high_align});padding-left:6px;line-height:1.2;">고 {high_p:,.0f}<br>({_pct(high_p):+.1f}%)</div>
     </div>
   </div>
-  <div style="flex: 0 0 165px; display: flex; flex-direction: column; justify-content: center; font-size: 13px; margin-top: 5px; min-width: 0;">
+  <div class="hc-investor" style="flex: 0 0 165px; display: flex; flex-direction: column; justify-content: center; font-size: 13px; margin-top: 5px; min-width: 0;">
     {investor_rows}
   </div>
 </div>"""

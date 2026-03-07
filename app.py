@@ -49,16 +49,22 @@ st.markdown(
     """
     <style>
     @media (max-width: 768px) {
-        .block-container { padding-top: 2rem; padding-left: 1rem; padding-right: 1rem; }
-        h1 { font-size: 1.8rem !important; }
-        h2 { font-size: 1.5rem !important; }
-        h3 { font-size: 1.2rem !important; }
-        div[data-testid="stMetricValue"] { font-size: 1.4rem !important; }
-        div[data-testid="stDataFrame"] { overflow-x: auto; }
-        .stButton>button { width: 100%; }
+        .block-container { padding-top: 1.5rem; padding-left: 0.8rem; padding-right: 0.8rem; }
+        h1 { font-size: 1.6rem !important; }
+        h2 { font-size: 1.3rem !important; }
+        h3 { font-size: 1.1rem !important; }
+        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; word-wrap: break-word; white-space: normal !important; }
+        div[data-testid="stDataFrame"] { font-size: 0.85rem !important; }
+        div[data-testid="stExpander"] details summary p { font-size: 0.9rem !important; }
+        div[data-testid="stPills"] button { padding: 0.3rem 0.6rem !important; font-size: 0.8rem !important; }
+        .stButton>button { width: 100%; padding: 0.4rem !important; font-size: 0.9rem !important; }
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
         .stTextInput>div[data-baseweb="input"] { width: 100%; }
         .modebar-container { display: none !important; }
+        
+        /* Force tabs to be scrollable rather than wrapping awkwardly */
+        div[data-testid="stTabs"] button { padding: 0.3rem 0.6rem !important; font-size: 0.8rem !important; }
     }
     </style>
     """,
