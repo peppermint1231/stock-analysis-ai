@@ -139,63 +139,50 @@ def get_major_indices() -> dict:
 
 @st.cache_data(ttl=60)
 def get_kospi_night_futures() -> dict | None:
-    """eSignal (https://esignal.co.kr/kospi200-futures-night/) 소켓 API를 폴링하여 KOSPI200 야간선물 데이터를 반환합니다."""
+    """https://longshortnow.com/ 에서 KOSPI 야간선물 데이터를 스크래핑합니다."""
     try:
         import requests
-        import json
-        import re
-
+        from bs4 import BeautifulSoup
+        
         headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Referer": "https://esignal.co.kr",
-            "Origin": "https://esignal.co.kr"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        res = requests.get('https://longshortnow.com/', headers=headers, timeout=5)
+        res.raise_for_status()
+        
+        soup = BeautifulSoup(res.content, 'html.parser')
+        
+        kospi_row = soup.find(string=lambda x: x and 'KOSPI' in x)
+        if not kospi_row:
+            return None
+            
+        parent_tr = kospi_row.find_parent('tr')
+        if not parent_tr:
+            return None
+            
+        tds = parent_tr.find_all(['td', 'th'])
+        if len(tds) < 4:
+            return None
 
-        # 1. sid 발급
-        res1 = requests.get('https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling', headers=headers, timeout=5)
-        text = res1.text
-        if "{" not in text: return None
-        data = json.loads(text[text.find("{"):text.rfind("}")+1])
-        sid = data.get("sid")
-        if not sid: return None
+        # Data structure on longshortnow.com: [Name, Price, Change(+/-), Change(%)]
+        price_str = tds[1].text.strip().replace(',', '')
+        diff_str = tds[2].text.strip().replace(',', '').replace('+', '')
+        pct_str = tds[3].text.strip().replace('%', '').replace('+', '')
         
-        # 2. 데이터 폴링
-        res2 = requests.get(f'https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling&sid={sid}', headers=headers, timeout=5)
-        
-        match = re.search(r'42\["populate","(.*?)"\]', res2.text.replace('\n', ''))
-        payload_str = None
-        if match:
-            payload_str = match.group(1).replace('\\"', '"')
-        else:
-            messages = res2.text.split('\x1e') if '\x1e' in res2.text else [res2.text]
-            for m in messages:
-                if 'populate' in m:
-                    parts = m.split('["populate","', 1)
-                    if len(parts) > 1:
-                        payload_str = parts[1].rsplit('"]')[0].replace('\\"', '"')
-                        break
-                        
-        if not payload_str: return None
-        
-        info = json.loads(payload_str)
-        price = float(info.get("value", 0))
-        diff = float(info.get("value_diff", 0))
-        value_day = float(info.get("value_day", 1))
-        
-        if price == 0 or value_day == 0: return None
-        
-        pct = (diff / value_day) * 100
-        
-        # eSignal payload ttime is usually HHMMSS e.g 183205
-        # or unix_timestamp
-        ttime = str(info.get("ttime", ""))
-        time_str = ""
-        if len(ttime) >= 4:
-            time_str = f"{ttime[:2]}:{ttime[2:4]}"
-        
-        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
-        
-    except Exception:
+        try:
+            price = float(price_str)
+            diff = float(diff_str)
+            pct = float(pct_str)
+            
+            if price == 0:
+                return None
+                
+            return {"price": price, "diff": diff, "pct": pct, "time": ""}  # specific time not strictly provided per row on landing
+        except ValueError:
+            return None
+
+    except Exception as e:
+        print(f"Error fetching KOSPI Night Futures from longshortnow.com: {e}")
         return None
 
 

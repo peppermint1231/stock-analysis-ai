@@ -623,8 +623,9 @@ def render_stock_nxt_card(code: str, name: str) -> None:
             sh = nv / (nav["vol"] + nv) * 100
             st.progress(min(sh/100, 1.0), text=f"NXT 거래 비중 약 {sh:.1f}% (네이버 거래량 기준)")
     else:
-        st.info("⏳ 해당 종목의 NXT 체결 데이터가 없습니다.")
-
+        st.info("⏳ 해당 종목이 NXT 상위 200 종목에 포함되지 않아 NXT 단독 거래량을 확인할 수 없습니다.")
+        if nav["ok"]:
+            st.markdown(f"**💡 위 네이버 실시간 현재가({nav['price']:,.0f}원)에는 이미 NXT(넥스트레이드) 체결 가격과 거래량이 모두 포함되어 있습니다.**")
     st.caption("⚡ [NXT 시장 현황 보기](https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do)")
 
 
