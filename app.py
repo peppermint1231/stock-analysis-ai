@@ -211,88 +211,87 @@ def get_major_indices() -> dict:
 
 @st.cache_data(ttl=60)
 def get_kospi_night_futures() -> dict | None:
-    """https://longshortnow.com/ 에서 KOSPI 야간선물 데이터를 스크래핑합니다."""
+    """eSignal (https://esignal.co.kr/kospi200-futures-night/) 소켓 API를 폴링하여 KOSPI200 야간선물 데이터를 반환합니다."""
     try:
+        import re as _re
+
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://esignal.co.kr",
+            "Origin": "https://esignal.co.kr",
         }
-        res = requests.get('https://longshortnow.com/', headers=headers, timeout=5)
-        res.raise_for_status()
-        
-        soup = BeautifulSoup(res.content, 'html.parser')
-        
-        kospi_row = soup.find(string=lambda x: x and 'KOSPI' in x)
-        if not kospi_row:
+
+        # 1. sid 발급
+        res1 = requests.get(
+            "https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling",
+            headers=headers, timeout=5,
+        )
+        text = res1.text
+        if "{" not in text:
             return None
-            
-        parent_tr = kospi_row.find_parent('tr')
-        if not parent_tr:
-            return None
-            
-        tds = parent_tr.find_all(['td', 'th'])
-        if len(tds) < 4:
+        data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        sid = data.get("sid")
+        if not sid:
             return None
 
-        # Data structure on longshortnow.com: [Name, Price, Change(+/-), Change(%)]
-        price_str = tds[1].text.strip().replace(',', '')
-        diff_str = tds[2].text.strip().replace(',', '').replace('+', '')
-        pct_str = tds[3].text.strip().replace('%', '').replace('+', '')
-        
-        try:
-            price = float(price_str)
-            diff = float(diff_str)
-            pct = float(pct_str)
-            
-            if price == 0:
-                return None
-                
-            return {"price": price, "diff": diff, "pct": pct, "time": ""}  # specific time not strictly provided per row on landing
-        except ValueError:
+        # 2. 데이터 폴링
+        res2 = requests.get(
+            f"https://esignal.co.kr/proxy/8888/socket.io/?EIO=3&transport=polling&sid={sid}",
+            headers=headers, timeout=5,
+        )
+
+        match = _re.search(r'42\["populate","(.*?)"\]', res2.text.replace("\n", ""))
+        payload_str = None
+        if match:
+            payload_str = match.group(1).replace('\\"', '"')
+        else:
+            messages = res2.text.split("\x1e") if "\x1e" in res2.text else [res2.text]
+            for m in messages:
+                if "populate" in m:
+                    parts = m.split('["populate","', 1)
+                    if len(parts) > 1:
+                        payload_str = parts[1].rsplit('"]')[0].replace('\\"', '"')
+                        break
+
+        if not payload_str:
             return None
 
-    except Exception as e:
-        print(f"Error fetching KOSPI Night Futures from longshortnow.com: {e}")
+        info = json.loads(payload_str)
+        price = float(info.get("value", 0))
+        diff = float(info.get("value_diff", 0))
+        value_day = float(info.get("value_day", 1))
+
+        if price == 0 or value_day == 0:
+            return None
+
+        pct = (diff / value_day) * 100
+
+        ttime = str(info.get("ttime", ""))
+        time_str = ""
+        if len(ttime) >= 4:
+            time_str = f"{ttime[:2]}:{ttime[2:4]}"
+
+        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
+
+    except Exception:
         return None
 
 
 @st.cache_data(ttl=300)
 def get_kospi_futures_last() -> dict | None:
-    """네이버 금융에서 KOSPI200 선물 최종 체결 데이터를 가져옵니다 (야간선물 미체결 시 fallback)."""
+    """yfinance ^KS200 (KOSPI200 지수)로 최종 체결 데이터를 가져옵니다 (야간선물 미체결 시 fallback)."""
     try:
-        url = "https://finance.naver.com/futures/sise.naver?code=101V06"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        res = requests.get(url, headers=headers, timeout=5)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.content, "html.parser")
-
-        # 현재가
-        price_el = soup.select_one("p.no_today .blind")
-        if not price_el:
+        t = yf.Ticker("^KS200")
+        info = t.fast_info
+        price = float(info.last_price)
+        prev = float(info.previous_close)
+        if price == 0:
             return None
-        price = float(price_el.text.strip().replace(",", ""))
-
-        # 전일대비
-        diff_el = soup.select_one("p.no_exday .blind")
-        diff = float(diff_el.text.strip().replace(",", "")) if diff_el else 0.0
-
-        # 등락률
-        pct = (diff / (price - diff) * 100) if (price - diff) != 0 else 0.0
-
-        # 부호 판별
-        ico_el = soup.select_one("p.no_exday em span.ico")
-        if ico_el:
-            cls = ico_el.get("class", [])
-            if "nv01" in cls or "dn" in cls:
-                diff = -abs(diff)
-                pct = -abs(pct)
-
-        # 기준 시각
-        time_el = soup.select_one("em.date")
-        time_str = time_el.text.strip() if time_el else ""
-
-        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
+        diff = price - prev
+        pct = (diff / prev * 100) if prev != 0 else 0.0
+        return {"price": price, "diff": diff, "pct": pct, "time": "KOSPI200 지수 (yfinance)"}
     except Exception as e:
-        print(f"Error fetching KOSPI futures last from Naver: {e}")
+        print(f"Error fetching KOSPI200 from yfinance: {e}")
         return None
 
 
