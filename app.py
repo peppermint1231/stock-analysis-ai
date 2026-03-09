@@ -255,6 +255,47 @@ def get_kospi_night_futures() -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300)
+def get_kospi_futures_last() -> dict | None:
+    """네이버 금융에서 KOSPI200 선물 최종 체결 데이터를 가져옵니다 (야간선물 미체결 시 fallback)."""
+    try:
+        url = "https://finance.naver.com/futures/sise.naver?code=101V06"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(url, headers=headers, timeout=5)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.content, "html.parser")
+
+        # 현재가
+        price_el = soup.select_one("p.no_today .blind")
+        if not price_el:
+            return None
+        price = float(price_el.text.strip().replace(",", ""))
+
+        # 전일대비
+        diff_el = soup.select_one("p.no_exday .blind")
+        diff = float(diff_el.text.strip().replace(",", "")) if diff_el else 0.0
+
+        # 등락률
+        pct = (diff / (price - diff) * 100) if (price - diff) != 0 else 0.0
+
+        # 부호 판별
+        ico_el = soup.select_one("p.no_exday em span.ico")
+        if ico_el:
+            cls = ico_el.get("class", [])
+            if "nv01" in cls or "dn" in cls:
+                diff = -abs(diff)
+                pct = -abs(pct)
+
+        # 기준 시각
+        time_el = soup.select_one("em.date")
+        time_str = time_el.text.strip() if time_el else ""
+
+        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
+    except Exception as e:
+        print(f"Error fetching KOSPI futures last from Naver: {e}")
+        return None
+
+
 _SIDEBAR_URLS = {
     "🇺🇸 S&P 500": "https://finance.naver.com/world/sise.naver?symbol=SPI@SPX",
     "🇺🇸 NASDAQ": "https://finance.naver.com/world/sise.naver?symbol=NAS@IXIC",
@@ -276,6 +317,7 @@ def _render_sidebar() -> None:
         from us_data import fetch_us_data, get_us_most_active  # noqa: PLC0415
         get_major_indices.clear()
         get_kospi_night_futures.clear()
+        get_kospi_futures_last.clear()
         fetch_krx_data.clear()
         fetch_us_data.clear()
         get_us_most_active.clear()
@@ -316,7 +358,21 @@ def _render_sidebar() -> None:
             label_visibility="collapsed",
         )
     else:
-        st.sidebar.caption("야간장 미체결 또는 데이터 없음 (18:00~05:00 활성)")
+        # 야간선물 데이터 없으면 KOSPI200 선물 최종 체결가로 fallback
+        fallback = get_kospi_futures_last()
+        if fallback:
+            fb_time = fallback.get("time", "")
+            st.sidebar.caption(f"야간장 미체결 · 최종 선물 데이터 ({fb_time})" if fb_time else "야간장 미체결 · 최종 선물 데이터")
+            pct_sign = "+" if fallback["pct"] >= 0 else ""
+            diff_sign = "+" if fallback["diff"] >= 0 else ""
+            st.sidebar.metric(
+                " ",
+                f"{fallback['price']:,.2f}",
+                f"{diff_sign}{fallback['diff']:,.2f} ({pct_sign}{fallback['pct']:.2f}%)",
+                label_visibility="collapsed",
+            )
+        else:
+            st.sidebar.caption("데이터 없음")
 
     st.sidebar.markdown("---")
     with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
