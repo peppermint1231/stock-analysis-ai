@@ -708,7 +708,8 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
         if not _tf_df.empty:
             _lbl = _LABEL_MAP.get(_tf_key, _tf_key)
             with st.expander(f"📋 {_lbl} 데이터 ({len(_tf_df)}개)", expanded=False):
-                st.dataframe(_tf_df.sort_index(ascending=False).style.format("{:,.2f}"), height=250)
+                _numeric_cols = _tf_df.select_dtypes(include="number").columns.tolist()
+                st.dataframe(_tf_df.sort_index(ascending=False).style.format("{:,.2f}", subset=_numeric_cols), height=250)
 
     st.subheader("🤖 AI 종합 분석 리포트 (Multi-Timeframe)")
     try:
@@ -806,7 +807,8 @@ def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label,
 
     st.subheader(f"🔢 데이터 테이블 ({interval_label})")
     st.caption("아래 표를 스크롤하여 전체 데이터를 확인할 수 있습니다.")
-    st.dataframe(display_df.style.format("{:,.2f}"), height=300, width="stretch")
+    _num_cols = display_df.select_dtypes(include="number").columns.tolist()
+    st.dataframe(display_df.style.format("{:,.2f}", subset=_num_cols), height=300, width="stretch")
 
     render_ai_analysis_content(ticker, name, market, currency, interval_label, df[final_cols], key_suffix)
 
