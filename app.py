@@ -1199,56 +1199,62 @@ with tab_kr_indie:
             run_nxt = st.session_state.get("run_krx_nxt", False)
             df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel), include_nxt=run_nxt)
 
-            if st.session_state.get("run_krx_nxt") and not df_kr.empty:
-                from krx_data import get_nxt_ranking
+            # ── 실시간 가격 반영: 당일 마지막 캔들을 현재가로 업데이트 ──
+            if not df_kr.empty:
                 from kis_api import get_current_price
-                nxt_df = get_nxt_ranking(rows=200)
-                
+                from krx_data import get_nxt_ranking
+
+                kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
+                last_idx = df_kr.index[-1]
+                is_intraday = fetch_int_kr in [
+                    "1분 (1 Minute)", "3분 (3 Minute)", "5분 (5 Minute)",
+                    "10분 (10 Minute)", "30분 (30 Minute)", "1시간 (60 Minute)",
+                ]
+
+                # KIS 실시간 현재가 조회 (모든 분석에 공통)
+                kis_rt = get_current_price(kr_code)
+                rt_price = float(kis_rt["price"]) if kis_rt and kis_rt.get("ok") else 0.0
+
+                # NXT 데이터 조회 (KRX+NXT 통합 분석일 때만)
                 nxt_vol = 0.0
                 nxt_price = 0.0
-                
-                if not nxt_df.empty and kr_code in nxt_df.index:
-                    nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
-                    nxt_price = float(nxt_df.loc[kr_code, "현재가"])
-                else:
-                    # Fallback to KIS Realtime if not in Top 200 NXT ranking
-                    kis_rt = get_current_price(kr_code)
-                    if kis_rt and kis_rt.get("ok"):
-                        nxt_price = float(kis_rt["price"])
-                
-                if nxt_price > 0:
-                    kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
-                    last_idx = df_kr.index[-1]
-                    
-                    # 장 전(09:00 이전) 또는 장 마감 후(15:30 이후) 일 때 NXT 시세/KIS 실시간 시세로 분봉 추가 또는 최신봉 갱신
-                    if kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30):
+                if run_nxt:
+                    nxt_df = get_nxt_ranking(rows=200)
+                    if not nxt_df.empty and kr_code in nxt_df.index:
+                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
+                        nxt_price = float(nxt_df.loc[kr_code, "현재가"])
+
+                # 최종 반영할 가격 결정 (NXT > KIS 우선순위)
+                live_price = nxt_price if nxt_price > 0 else rt_price
+
+                if live_price > 0:
+                    after_hours = kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30)
+
+                    if is_intraday:
                         current_minute = kst_now.replace(second=0, microsecond=0)
-                        # 인트라데이 차트인 경우
-                        if fetch_int_kr in ["1분 (1 Minute)", "3분 (3 Minute)", "5분 (5 Minute)", "10분 (10 Minute)", "30분 (30 Minute)", "1시간 (60 Minute)"]:
-                            if current_minute > last_idx:
-                                new_row = pd.DataFrame({
-                                    "Open": [nxt_price], "High": [nxt_price], "Low": [nxt_price],
-                                    "Close": [nxt_price], "Volume": [nxt_vol]
-                                }, index=[current_minute])
-                                df_kr = pd.concat([df_kr, new_row])
-                            else:
-                                df_kr.at[last_idx, "Close"] = nxt_price
-                                df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), nxt_price)
-                                df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), nxt_price)
-                                if nxt_vol > 0:
-                                    df_kr.at[last_idx, "Volume"] += nxt_vol
+                        if after_hours and current_minute > last_idx:
+                            # 장 마감 후 새 캔들 추가
+                            new_row = pd.DataFrame({
+                                "Open": [live_price], "High": [live_price], "Low": [live_price],
+                                "Close": [live_price], "Volume": [nxt_vol],
+                            }, index=[current_minute])
+                            df_kr = pd.concat([df_kr, new_row])
                         else:
-                            # 일봉 이상의 차트인 경우 장 마감 후 마지막 캔들 보정
-                            if last_idx.date() == kst_now.date():
-                                df_kr.at[last_idx, "Close"] = nxt_price
-                                df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), nxt_price)
-                                df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), nxt_price)
-                                if nxt_vol > 0:
-                                    df_kr.at[last_idx, "Volume"] += nxt_vol
+                            # 마지막 캔들을 현재가로 갱신
+                            df_kr.at[last_idx, "Close"] = live_price
+                            df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), live_price)
+                            df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), live_price)
+                            if nxt_vol > 0:
+                                df_kr.at[last_idx, "Volume"] += nxt_vol
                     else:
-                        # 장 중인 경우 기본적으로 볼륨만 단순 합산
-                        if nxt_vol > 0:
-                            df_kr.at[last_idx, "Volume"] += nxt_vol
+                        # 일봉 이상: 당일 캔들이 있으면 현재가로 갱신
+                        today = kst_now.date()
+                        if last_idx.date() == today or (last_idx.date() >= today - timedelta(days=3)):
+                            df_kr.at[last_idx, "Close"] = live_price
+                            df_kr.at[last_idx, "High"] = max(float(df_kr.at[last_idx, "High"]), live_price)
+                            df_kr.at[last_idx, "Low"] = min(float(df_kr.at[last_idx, "Low"]), live_price)
+                            if nxt_vol > 0:
+                                df_kr.at[last_idx, "Volume"] += nxt_vol
 
         try:
             if df_kr.empty:
