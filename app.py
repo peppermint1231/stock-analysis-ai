@@ -83,9 +83,21 @@ st.markdown(
         div[data-testid="stPills"] { overflow-x: auto !important; flex-wrap: nowrap !important; }
         div[data-testid="stPills"] button { padding: 0.25rem 0.5rem !important; font-size: 0.75rem !important; white-space: nowrap; }
 
-        /* Buttons — full width on mobile */
-        .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.9rem !important; }
-        .stDownloadButton>button { width: 100%; font-size: 0.85rem !important; }
+        /* Buttons — full width on mobile, prevent icon text overflow */
+        .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Hide Material Symbols icon text that leaks on mobile */
+        .stButton>button span[data-testid="stIconMaterial"],
+        .stDownloadButton>button span[data-testid="stIconMaterial"],
+        button[kind] span.material-symbols-rounded,
+        .stButton>button .material-symbols-rounded,
+        .stDownloadButton>button .material-symbols-rounded,
+        span.material-symbols-rounded { font-size: 1.1rem !important; overflow: hidden !important; width: 1.2em !important; display: inline-block !important; vertical-align: middle !important; }
+
+        /* Toast / alert icon overflow fix */
+        div[data-testid="stToast"] span.material-symbols-rounded,
+        div[data-testid="stAlert"] span.material-symbols-rounded { overflow: hidden !important; width: 1.2em !important; }
 
         /* Inputs */
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
@@ -111,6 +123,14 @@ st.markdown(
 
         /* Slider — larger touch target */
         div[data-testid="stSlider"] { padding: 0.3rem 0 !important; }
+    }
+
+    /* ── Global Material Symbols icon fix (all viewports) ────────────── */
+    span.material-symbols-rounded {
+        overflow: hidden !important;
+        display: inline-block !important;
+        vertical-align: middle !important;
+        text-overflow: clip !important;
     }
 
     /* ── Tablet breakpoint ──────────────────────────────────────────────── */
