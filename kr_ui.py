@@ -70,6 +70,10 @@ def _get_naver_investor_data(ticker: str) -> dict:
 
     개인 = -(기관 + 외국인), 기타법인 = 0 (Naver에서 미제공)
     """
+    def _parse_int(s: str) -> int:
+        s = s.replace(",", "").replace("+", "").strip()
+        return int(s) if s and s != "-" else 0
+
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={ticker}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
@@ -84,12 +88,8 @@ def _get_naver_investor_data(ticker: str) -> dict:
                 if len(date_text) != 10 or "." not in date_text:
                     continue
                 try:
-                    def _parse(s: str) -> int:
-                        s = s.replace(",", "").replace("+", "").strip()
-                        return int(s) if s and s != "-" else 0
-
-                    inst_val = _parse(cells[5].text)
-                    foreign_val = _parse(cells[6].text)
+                    inst_val = _parse_int(cells[5].text)
+                    foreign_val = _parse_int(cells[6].text)
                     return {
                         "개인": -(inst_val + foreign_val),
                         "외국인": foreign_val,
@@ -126,16 +126,16 @@ def _investor_bar_row(label: str, val: int, baseline: int) -> str:
     bw = min(abs(v_pct) / 2, 50)
     lm = 50 if val > 0 else 50 - bw
     return f"""
-<div style="display: flex; align-items: center; justify-content: space-between; height: 32px; margin-bottom: 5px;">
-  <div style="width: 45px; text-align: left; color: #495057; font-weight: bold; font-size: 11px;">{label}</div>
-  <div style="flex: 1; position: relative; height: 16px; margin: 0 5px; display: flex; align-items: center;">
+<div style="display: flex; align-items: center; justify-content: space-between; height: 28px; margin-bottom: 4px;">
+  <div style="width: 40px; text-align: left; color: #495057; font-weight: bold; font-size: 11px; flex-shrink: 0;">{label}</div>
+  <div style="flex: 1; position: relative; height: 14px; margin: 0 4px; display: flex; align-items: center; min-width: 0;">
      <div style="position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #000; z-index: 1;"></div>
      <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #000; z-index: 3;"></div>
-     <div style="position: absolute; left: {lm}%; width: {bw}%; height: 12px; top: 2px; background: {row_color}; z-index: 2;"></div>
+     <div style="position: absolute; left: {lm}%; width: {bw}%; height: 12px; top: 1px; background: {row_color}; z-index: 2;"></div>
   </div>
-  <div style="width: 55px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2px;">
-     <div style="font-size: 9px; color: #adb5bd; line-height: 1.2; margin-bottom: 2px;">{val:,.0f}</div>
-     <div style="color: {row_color}; font-weight: bold; font-size: 11px; line-height: 1.2;">{s}{v_pct:.0f}%</div>
+  <div style="width: 50px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 1px; flex-shrink: 0;">
+     <div style="font-size: 9px; color: #adb5bd; line-height: 1.1; margin-bottom: 1px;">{val:,.0f}</div>
+     <div style="color: {row_color}; font-weight: bold; font-size: 11px; line-height: 1.1;">{s}{v_pct:.0f}%</div>
   </div>
 </div>
 """
@@ -144,10 +144,25 @@ def _investor_bar_row(label: str, val: int, baseline: int) -> str:
 def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_pct: float = 30.0) -> str:
     """주어진 DataFrame으로 가로 캔들 차트 HTML 문자열을 생성합니다."""
     html = (
-        '<style>.hc-card { flex-wrap: nowrap; } @media (max-width: 650px) { .hc-card { flex-wrap: wrap !important; } .hc-investor { flex: 1 1 100% !important; margin-top: 15px !important; } }</style>'
-        '<div style="font-family: sans-serif; font-size: 14px; margin-top: 10px;'
-        ' margin-bottom: 20px; display: grid;'
-        ' grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 30px;">'
+        '<style>'
+        '.hc-card { flex-wrap: nowrap; }'
+        '.hc-grid { font-family: sans-serif; font-size: 14px; margin-top: 10px; margin-bottom: 20px;'
+        '  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }'
+        '@media (max-width: 480px) {'
+        '  .hc-grid { grid-template-columns: 1fr; gap: 12px; }'
+        '  .hc-card { flex-wrap: wrap !important; padding: 12px 10px !important; }'
+        '  .hc-investor { flex: 1 1 100% !important; margin-top: 10px !important; }'
+        '  .hc-name { font-size: 13px !important; }'
+        '  .hc-candle-area { height: 35px !important; }'
+        '  .hc-label { font-size: 10px !important; }'
+        '}'
+        '@media (min-width: 481px) and (max-width: 768px) {'
+        '  .hc-grid { grid-template-columns: 1fr; gap: 15px; }'
+        '  .hc-card { flex-wrap: wrap !important; }'
+        '  .hc-investor { flex: 1 1 100% !important; margin-top: 12px !important; }'
+        '}'
+        '</style>'
+        '<div class="hc-grid">'
     )
 
     for ticker in df.index:
@@ -202,31 +217,31 @@ def render_horizontal_candles(df: pd.DataFrame, ticker_map: dict[str, str], max_
             l_pct = _candle_pct(low_p, prev_close)
 
             html += f"""
-<div class="hc-card" style="border:1px solid #e2e8f0;border-radius:12px;padding:20px 15px;background:white;
-box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:15px; flex-wrap: nowrap;">
-  <div style="flex:1 1 120px; min-width: 0;">
-    <div style="margin-bottom:25px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;align-items:center;">
-      <div style="word-break: keep-all; line-height: 1.4;">
-        {name} <span style="font-size:13px;color:gray;font-weight:normal;">
+<div class="hc-card" style="border:1px solid #e2e8f0;border-radius:10px;padding:14px 12px;background:white;
+box-shadow:0 2px 4px rgba(0,0,0,0.05);display:flex;align-items:stretch;gap:12px;flex-wrap:nowrap;">
+  <div style="flex:1 1 100px;min-width:0;">
+    <div class="hc-name" style="margin-bottom:18px;font-weight:bold;font-size:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
+      <div style="word-break:keep-all;line-height:1.3;min-width:0;">
+        {name} <span style="font-size:12px;color:gray;font-weight:normal;">
           ({close_p:,.0f}원 <span style="color:{color};">{c_pct:+.2f}%</span>)
         </span>
       </div>
       {vol_html}
     </div>
-    <div style="position:relative;width:100%;height:40px;background-color:#f8f9fa;
-      border-radius:4px;border:1px solid #e9ecef; margin-top: 10px;">
+    <div class="hc-candle-area" style="position:relative;width:100%;height:40px;background-color:#f8f9fa;
+      border-radius:4px;border:1px solid #e9ecef;margin-top:8px;">
       <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background-color:#adb5bd;z-index:1;"></div>
       <div style="position:absolute;left:{x_l}%;width:{x_h-x_l}%;top:19px;height:2px;background-color:#495057;z-index:2;"></div>
       <div style="position:absolute;left:{body_left}%;width:{body_width}%;top:8px;height:24px;background-color:{color};border-radius:2px;z-index:3;"></div>
       <div style="position:absolute;left:{x_o}%;top:0;height:40px;border-left:2px dashed #343a40;z-index:4;"></div>
-      <div style="position:absolute;left:{x_o}%;top:-19px;font-size:11px;color:#495057;transform:translateX(-50%);white-space:nowrap;">시 {open_p:,.0f}</div>
+      <div class="hc-label" style="position:absolute;left:{x_o}%;top:-17px;font-size:10px;color:#495057;transform:translateX(-50%);white-space:nowrap;">시 {open_p:,.0f}</div>
       <div style="position:absolute;left:{x_c}%;top:0;height:40px;border-left:2px solid #212529;z-index:5;"></div>
-      <div style="position:absolute;left:{x_c}%;top:43px;font-size:12px;font-weight:bold;color:{color};transform:translateX(-50%);white-space:nowrap;">종 {close_p:,.0f}</div>
-      <div style="position:absolute;left:{x_l}%;top:62px;font-size:11px;color:#6c757d;transform:translateX(-100%);padding-right:6px;text-align:right;line-height:1.2;">저 {low_p:,.0f}<br>({l_pct:+.1f}%)</div>
-      <div style="position:absolute;left:{x_h}%;top:62px;font-size:11px;color:#6c757d;transform:translateX({high_align});padding-left:6px;line-height:1.2;">고 {high_p:,.0f}<br>({h_pct:+.1f}%)</div>
+      <div class="hc-label" style="position:absolute;left:{x_c}%;top:43px;font-size:11px;font-weight:bold;color:{color};transform:translateX(-50%);white-space:nowrap;">종 {close_p:,.0f}</div>
+      <div class="hc-label" style="position:absolute;left:{x_l}%;top:58px;font-size:10px;color:#6c757d;transform:translateX(-100%);padding-right:4px;text-align:right;line-height:1.2;">저 {low_p:,.0f}<br>({l_pct:+.1f}%)</div>
+      <div class="hc-label" style="position:absolute;left:{x_h}%;top:58px;font-size:10px;color:#6c757d;transform:translateX({high_align});padding-left:4px;line-height:1.2;">고 {high_p:,.0f}<br>({h_pct:+.1f}%)</div>
     </div>
   </div>
-  <div class="hc-investor" style="flex: 0 0 165px; display: flex; flex-direction: column; justify-content: center; font-size: 13px; margin-top: 5px; min-width: 0;">
+  <div class="hc-investor" style="flex:0 0 150px;display:flex;flex-direction:column;justify-content:center;font-size:12px;margin-top:4px;min-width:0;">
     {investor_rows}
   </div>
 </div>"""
@@ -546,16 +561,16 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        st.markdown("**📡 한국투자증권 Open API 실시간** (KRX 기준 · 완전한 실시간)")
-        c1, c2, c3, c4 = st.columns(4)
+        st.markdown("**📡 한국투자증권 Open API 실시간** (KRX 기준)")
         sq = "+" if nav["rate"] > 0 else ""
         col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
-        c1.markdown(
-            f"<div style='font-size:0.9rem; color:gray;'>현재가</div>"
-            f"<div style='font-size:1.8rem; font-weight:bold;'>{nav['price']:,.0f} 원</div>"
-            f"<div style='color:{col_str}; font-weight:bold; font-size:1rem;'>{sq}{nav['rate']:.2f}%</div>",
+        st.markdown(
+            f"<div style='font-size:0.85rem;color:gray;'>현재가</div>"
+            f"<div style='font-size:1.6rem;font-weight:bold;'>{nav['price']:,.0f} 원</div>"
+            f"<div style='color:{col_str};font-weight:bold;font-size:0.95rem;'>{sq}{nav['rate']:.2f}%</div>",
             unsafe_allow_html=True,
         )
+        c2, c3, c4 = st.columns(3)
         c2.metric("전일대비", f"{sq}{nav['diff']:,.0f} 원")
         c3.metric("거래량", f"{nav['vol']:,.0f} 주" if nav["vol"] > 0 else "—")
         c4.metric("거래대금", f"{nav['val']/1e8:,.1f} 억원" if nav["val"] > 0 else "—")
@@ -585,13 +600,13 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         nva = float(nxt_row["NXT거래대금"])
         ns = "+" if nr > 0 else ""
         n_col = "#D32F2F" if nr > 0 else "#1976D2" if nr < 0 else "inherit"
-        d1, d2, d3 = st.columns(3)
-        d1.markdown(
-            f"<div style='font-size:0.9rem; color:gray;'>NXT 현재가</div>"
-            f"<div style='font-size:1.8rem; font-weight:bold;'>{np_:,.0f} 원</div>"
-            f"<div style='color:{n_col}; font-weight:bold; font-size:1rem;'>{ns}{nr:.2f}%</div>",
+        st.markdown(
+            f"<div style='font-size:0.85rem;color:gray;'>NXT 현재가</div>"
+            f"<div style='font-size:1.6rem;font-weight:bold;'>{np_:,.0f} 원</div>"
+            f"<div style='color:{n_col};font-weight:bold;font-size:0.95rem;'>{ns}{nr:.2f}%</div>",
             unsafe_allow_html=True,
         )
+        d2, d3 = st.columns(2)
         d2.metric("NXT 거래량", f"{nv:,.0f} 주")
         d3.metric("NXT 거래대금", f"{nva / 1e8:,.1f} 억원")
         if nav["ok"] and nav["vol"] > 0 and nv > 0:

@@ -10,7 +10,7 @@ import os
 import subprocess
 import time
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -55,23 +55,68 @@ localS = LocalStorage()
 st.markdown(
     """
     <style>
+    /* ── Mobile-first responsive styles ─────────────────────────────────── */
     @media (max-width: 768px) {
-        .block-container { padding-top: 1.5rem; padding-left: 0.8rem; padding-right: 0.8rem; }
-        h1 { font-size: 1.6rem !important; }
-        h2 { font-size: 1.3rem !important; }
-        h3 { font-size: 1.1rem !important; }
-        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-        div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; word-wrap: break-word; white-space: normal !important; }
-        div[data-testid="stDataFrame"] { font-size: 0.85rem !important; }
-        div[data-testid="stExpander"] details summary p { font-size: 0.9rem !important; }
-        div[data-testid="stPills"] button { padding: 0.3rem 0.6rem !important; font-size: 0.8rem !important; }
-        .stButton>button { width: 100%; padding: 0.4rem !important; font-size: 0.9rem !important; }
+        /* Layout & spacing */
+        .block-container { padding-top: 1rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+        section[data-testid="stSidebar"] { width: 260px !important; }
+        section[data-testid="stSidebar"] .block-container { padding: 0.5rem 0.8rem; }
+
+        /* Typography */
+        h1 { font-size: 1.4rem !important; line-height: 1.3 !important; }
+        h2 { font-size: 1.2rem !important; }
+        h3 { font-size: 1.05rem !important; }
+
+        /* Metrics — compact on small screens */
+        div[data-testid="stMetricValue"] { font-size: 1rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.75rem !important; word-wrap: break-word; white-space: normal !important; }
+        div[data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
+
+        /* DataFrames */
+        div[data-testid="stDataFrame"] { font-size: 0.8rem !important; overflow-x: auto !important; }
+        div[data-testid="stDataFrame"] table { min-width: 500px; }
+
+        /* Expander */
+        div[data-testid="stExpander"] details summary p { font-size: 0.85rem !important; }
+
+        /* Pills — wrap & shrink */
+        div[data-testid="stPills"] { overflow-x: auto !important; flex-wrap: nowrap !important; }
+        div[data-testid="stPills"] button { padding: 0.25rem 0.5rem !important; font-size: 0.75rem !important; white-space: nowrap; }
+
+        /* Buttons — full width on mobile */
+        .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.9rem !important; }
+        .stDownloadButton>button { width: 100%; font-size: 0.85rem !important; }
+
+        /* Inputs */
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
         .stTextInput>div[data-baseweb="input"] { width: 100%; }
+        .stNumberInput>div { width: 100%; }
+
+        /* Tabs — horizontal scroll instead of wrapping */
+        div[data-testid="stTabs"] [role="tablist"] { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap !important; gap: 0 !important; }
+        div[data-testid="stTabs"] button[role="tab"] { padding: 0.3rem 0.5rem !important; font-size: 0.75rem !important; white-space: nowrap; flex-shrink: 0; }
+
+        /* Columns — stack vertically on narrow screens */
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.3rem !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 100% !important; flex-basis: 100% !important; }
+
+        /* Plotly toolbar hidden on mobile */
         .modebar-container { display: none !important; }
-        
-        /* Force tabs to be scrollable rather than wrapping awkwardly */
-        div[data-testid="stTabs"] button { padding: 0.3rem 0.6rem !important; font-size: 0.8rem !important; }
+
+        /* Code blocks — scrollable */
+        .stCode, pre { font-size: 0.75rem !important; overflow-x: auto !important; }
+
+        /* Markdown text */
+        .stMarkdown p { font-size: 0.9rem !important; }
+
+        /* Slider — larger touch target */
+        div[data-testid="stSlider"] { padding: 0.3rem 0 !important; }
+    }
+
+    /* ── Tablet breakpoint ──────────────────────────────────────────────── */
+    @media (min-width: 769px) and (max-width: 1024px) {
+        .block-container { padding-left: 1rem; padding-right: 1rem; }
+        div[data-testid="stTabs"] button[role="tab"] { font-size: 0.85rem !important; }
     }
     </style>
     """,
@@ -373,14 +418,19 @@ def _render_ltwc_chart(bars: list, ticker: str, is_realtime: bool = False, curre
     )
     html = f"""
     <!DOCTYPE html><html><head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="{_LTWC_JS}"></script>
     <style>
       body{{margin:0;background:#131722;color:#d1d4dc;font-family:sans-serif;}}
-      #chart-header{{display:flex;align-items:center;gap:10px;padding:8px 12px;
-                     background:#1e2230;border-bottom:1px solid #2a2d3a;}}
-      #chart-header .ticker{{font-size:16px;font-weight:700;color:#ffffff;}}
-      #chart-header .ohlcv{{font-size:13px;color:#848e9c;}}
-      #chart{{width:100%;height:360px;}}
+      #chart-header{{display:flex;align-items:center;gap:8px;padding:6px 10px;
+                     background:#1e2230;border-bottom:1px solid #2a2d3a;flex-wrap:wrap;}}
+      #chart-header .ticker{{font-size:14px;font-weight:700;color:#ffffff;}}
+      #chart-header .ohlcv{{font-size:12px;color:#848e9c;}}
+      #chart{{width:100%;}}
+      @media (max-width: 480px) {{
+        #chart-header .ticker{{font-size:12px;}}
+        #chart-header .ohlcv{{font-size:10px;}}
+      }}
     </style></head><body>
     <div id="chart-header">
       <span class="ticker">{ticker} 1분봉</span>
@@ -391,14 +441,17 @@ def _render_ltwc_chart(bars: list, ticker: str, is_realtime: bool = False, curre
     <script>
     (function(){{
       const bars = {bars_json};
-      const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
+      var chartH = window.innerWidth < 480 ? 260 : (window.innerWidth < 768 ? 300 : 360);
+      const el = document.getElementById('chart');
+      el.style.height = chartH + 'px';
+      const chart = LightweightCharts.createChart(el, {{
         layout: {{background:{{color:'#131722'}},textColor:'#d1d4dc'}},
         grid: {{vertLines:{{color:'#2a2d3a'}},horzLines:{{color:'#2a2d3a'}}}},
         crosshair: {{mode: LightweightCharts.CrosshairMode.Normal}},
         rightPriceScale: {{borderColor:'#2a2d3a'}},
         timeScale: {{borderColor:'#2a2d3a', timeVisible:true, secondsVisible:false}},
-        width: document.getElementById('chart').offsetWidth,
-        height: 360,
+        width: el.offsetWidth,
+        height: chartH,
       }});
       const series = chart.addCandlestickSeries({{
         upColor:'#26a69a', downColor:'#ef5350',
@@ -413,7 +466,6 @@ def _render_ltwc_chart(bars: list, ticker: str, is_realtime: bool = False, curre
         document.getElementById('ohlcv').textContent =
           'O:'+last.open+' H:'+last.high+' L:'+last.low+' C:'+last.close;
       }}
-      // crosshair 이동 시 OHLCV 표시
       chart.subscribeCrosshairMove(function(param) {{
         if(param.time && param.seriesData.size > 0) {{
           const d = param.seriesData.get(series);
@@ -421,8 +473,10 @@ def _render_ltwc_chart(bars: list, ticker: str, is_realtime: bool = False, curre
             'O:'+d.open+' H:'+d.high+' L:'+d.low+' C:'+d.close;
         }}
       }});
-      // 리사이즈 대응
-      window.addEventListener('resize', ()=>{{ chart.resize(document.getElementById('chart').offsetWidth, 360); }});
+      window.addEventListener('resize', function(){{
+        chartH = window.innerWidth < 480 ? 260 : (window.innerWidth < 768 ? 300 : 360);
+        chart.resize(el.offsetWidth, chartH);
+      }});
     }})();
     </script></body></html>
     """
@@ -442,22 +496,22 @@ def render_realtime_chart(ticker: str, currency: str = "KRW", key_prefix: str = 
     running_key = f"{key_prefix}_{ticker}_rt_running"
     interval_key = f"{key_prefix}_{ticker}_rt_interval"
 
-    col_btn, col_interval, col_stop = st.columns([1.5, 2, 1])
-    with col_btn:
-        if not st.session_state.get(running_key):
-            if st.button("▶️ 실시간 차트 시작", key=f"{key_prefix}_{ticker}_start", type="primary"):
-                st.session_state[running_key] = True
-                st.rerun(scope="fragment")
-    with col_interval:
-        refresh_sec = st.select_slider(
-            "🔄 업데이트 주기 (초)",
-            options=[10, 15, 20, 30, 60],
-            value=st.session_state.get(interval_key, 30),
-            key=interval_key,
-        )
-    with col_stop:
-        if st.session_state.get(running_key):
-            if st.button("⏹️ 중지", key=f"{key_prefix}_{ticker}_stop"):
+    refresh_sec = st.session_state.get(interval_key, 30)
+    if not st.session_state.get(running_key):
+        if st.button("▶️ 실시간 차트 시작", key=f"{key_prefix}_{ticker}_start", type="primary", use_container_width=True):
+            st.session_state[running_key] = True
+            st.rerun(scope="fragment")
+    else:
+        col_interval, col_stop = st.columns([3, 1])
+        with col_interval:
+            refresh_sec = st.select_slider(
+                "🔄 업데이트 주기 (초)",
+                options=[10, 15, 20, 30, 60],
+                value=refresh_sec,
+                key=interval_key,
+            )
+        with col_stop:
+            if st.button("⏹️ 중지", key=f"{key_prefix}_{ticker}_stop", use_container_width=True):
                 st.session_state[running_key] = False
                 st.rerun(scope="fragment")
 
@@ -523,11 +577,11 @@ def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str) -> None:
         </script>
         """
 
-    lb1, lb2, _ = st.columns([1, 1, 3])
+    lb1, lb2 = st.columns(2)
     with lb1:
-        components.html(_copy_btn("📋 복사 후 ChatGPT 열기", gpt_prompt, "https://chatgpt.com/", "#10a37f", f"bgpt_{suffix}"), height=50)
+        components.html(_copy_btn("📋 ChatGPT 복사+열기", gpt_prompt, "https://chatgpt.com/", "#10a37f", f"bgpt_{suffix}"), height=50)
     with lb2:
-        components.html(_copy_btn("📋 복사 후 Gemini 열기", gem_prompt, "https://gemini.google.com/", "#1a73e8", f"bgem_{suffix}"), height=50)
+        components.html(_copy_btn("📋 Gemini 복사+열기", gem_prompt, "https://gemini.google.com/", "#1a73e8", f"bgem_{suffix}"), height=50)
 
 
 @st.fragment
@@ -908,7 +962,7 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
                     last_time = day_df.index[-1]
                     # 장 마감 시간대(15:30)의 가격 정보가 원본에 있다면
                     if last_time.hour >= 15 and last_time.minute >= 30:
-                        close_time = datetime.combine(d, time(15, 30))
+                        close_time = datetime.combine(d, dt_time(15, 30))
                         if close_time not in resampled.index and last_time >= close_time:
                             last_row = day_df.loc[last_time]
                             new_row = pd.DataFrame({
@@ -1298,18 +1352,21 @@ with tab_us_indie:
         _period_codes_us = {"일봉 (Daily)": "D", "주봉 (Weekly)": "W", "월봉 (Monthly)": "M", "연봉 (Yearly)": "Y"}
         period_code_us = _period_codes_us.get(interval_us_sel, "D")
 
-        # TradingView chart
+        # TradingView chart — responsive height
         components.html(
             f"""
-            <div class="tradingview-widget-container" style="margin-bottom:20px">
-              <div id="tv_{us_ticker}"></div>
+            <div class="tradingview-widget-container" style="margin-bottom:10px">
+              <div id="tv_{us_ticker}" style="width:100%;"></div>
               <script src="https://s3.tradingview.com/tv.js"></script>
               <script>
-              new TradingView.widget({{
-                "width":"100%","height":1180,"symbol":"{us_ticker}","interval":"{period_code_us}",
-                "timezone":"Asia/Seoul","theme":"light","style":"1","locale":"kr",
-                "enable_publishing":false,"allow_symbol_change":true,"container_id":"tv_{us_ticker}"
-              }});
+              (function(){{
+                var h = window.innerWidth < 768 ? 480 : (window.innerWidth < 1024 ? 700 : 1180);
+                new TradingView.widget({{
+                  "width":"100%","height":h,"symbol":"{us_ticker}","interval":"{period_code_us}",
+                  "timezone":"Asia/Seoul","theme":"light","style":"1","locale":"kr",
+                  "enable_publishing":false,"allow_symbol_change":true,"container_id":"tv_{us_ticker}"
+                }});
+              }})();
               </script>
             </div>""",
             height=1200,
