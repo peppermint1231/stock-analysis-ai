@@ -1,109 +1,73 @@
+"""utils.py — 기술적 지표 계산 및 OHLCV 리샘플링 유틸리티"""
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 
-def calculate_indicators(df):
-    """
-    Calculates technical indicators using standard pandas functions.
-    Expects df to have 'Close' column.
-    Returns df with added columns: SMA_5, SMA_20, SMA_60, RSI_14, MACD, BB_Upper, BB_Lower.
+
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """OHLCV DataFrame에 기술적 지표를 추가하여 반환합니다.
+
+    추가 컬럼: SMA_5, SMA_20, SMA_60, RSI_14, MACD, BB_Upper, BB_Lower
     """
     if df is None or df.empty:
         return df
-    
-    # Ensure Index is Datetime
+
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    # Make a copy to avoid SettingWithCopy warnings on the original dataframe slice if applicable
     df = df.copy()
 
-    # 1. Moving Averages
-    df['SMA_5'] = df['Close'].rolling(window=5, min_periods=1).mean()
-    df['SMA_20'] = df['Close'].rolling(window=20, min_periods=1).mean()
-    df['SMA_60'] = df['Close'].rolling(window=60, min_periods=1).mean()
-    
-    # 2. RSI (Relative Strength Index)
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0))
-    loss = (-delta.where(delta < 0, 0))
-    
-    avg_gain = gain.rolling(window=14).mean()
-    avg_loss = loss.rolling(window=14).mean()
-    
-    rs = avg_gain / avg_loss
-    df['RSI_14'] = 100 - (100 / (1 + rs))
-    
-    # Fill NaN caused by division by zero if any (though rare in stock prices)
-    df['RSI_14'] = df['RSI_14'].fillna(50) 
+    # 이동평균
+    df["SMA_5"] = df["Close"].rolling(window=5, min_periods=1).mean()
+    df["SMA_20"] = df["Close"].rolling(window=20, min_periods=1).mean()
+    df["SMA_60"] = df["Close"].rolling(window=60, min_periods=1).mean()
 
-    # 3. MACD
-    # EMA 12
-    k12 = df['Close'].ewm(span=12, adjust=False).mean()
-    # EMA 26
-    k26 = df['Close'].ewm(span=26, adjust=False).mean()
-    
-    df['MACD'] = k12 - k26
-    # Signal line (often not displayed but needed for full macd, here we just return MACD line as per request or usage)
-    # df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
-        
-    # 4. Bollinger Bands
-    # Middle Band = 20 SMA
-    # Upper Band = 20 SMA + (20 SD * 2)
-    # Lower Band = 20 SMA - (20 SD * 2)
-    std_20 = df['Close'].rolling(window=20, min_periods=1).std()
-    
-    df['BB_Upper'] = df['SMA_20'] + (std_20 * 2)
-    df['BB_Lower'] = df['SMA_20'] - (std_20 * 2)
-    
-    # Fill any remaining NaNs (std_20 needs at least 2 periods, so first row is NaN)
-    df['BB_Upper'] = df['BB_Upper'].bfill().fillna(df['Close'])
-    df['BB_Lower'] = df['BB_Lower'].bfill().fillna(df['Close'])
-    
-    # Also bfill RSI and MACD just in case
-    df['RSI_14'] = df['RSI_14'].bfill().fillna(50)
-    df['MACD'] = df['MACD'].bfill().fillna(0)
-        
+    # RSI (14)
+    delta = df["Close"].diff()
+    avg_gain = delta.where(delta > 0, 0).rolling(window=14).mean()
+    avg_loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    df["RSI_14"] = (100 - 100 / (1 + avg_gain / avg_loss)).bfill().fillna(50)
+
+    # MACD
+    df["MACD"] = (
+        df["Close"].ewm(span=12, adjust=False).mean()
+        - df["Close"].ewm(span=26, adjust=False).mean()
+    ).bfill().fillna(0)
+
+    # 볼린저 밴드 (20일, 2σ)
+    std_20 = df["Close"].rolling(window=20, min_periods=1).std()
+    df["BB_Upper"] = (df["SMA_20"] + std_20 * 2).bfill().fillna(df["Close"])
+    df["BB_Lower"] = (df["SMA_20"] - std_20 * 2).bfill().fillna(df["Close"])
+
     return df
-def resample_ohlcv(df, period):
+
+
+def resample_ohlcv(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """OHLCV DataFrame을 지정 주기로 리샘플링합니다.
+
+    Args:
+        period: 'D'(일), 'W'(주), 'ME'(월말), 'YE'(연말) 또는 분봉용 '60min' 등
     """
-    Resamples OHLCV data to a different period.
-    period: 'W' (Weekly), 'M' (Monthly), 'D' (Daily - returns copy)
-    """
-    if period == 'D':
+    if period == "D":
         return df.copy()
-        
-    # Map deprecated pandas resample aliases
-    period_map = {'M': 'ME', 'Y': 'YE'}
-    period = period_map.get(period, period)
-        
-    # Validation: Ensure index is Datetime
+
+    # 구버전 pandas 별칭 대응
+    period = {"M": "ME", "Y": "YE"}.get(period, period)
+
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
 
-    # Resampling Logic
-    # Open: first, High: max, Low: min, Close: last, Volume: sum
-    # Note: Column names must match app.py (Open, High, Low, Close, Volume)
-    agg_dict = {
-        'Open': 'first',
-        'High': 'max',
-        'Low': 'min',
-        'Close': 'last',
-        'Volume': 'sum'
-    }
-    
-    # Handle case where some cols might be missing
-    existing_agg = {k: v for k, v in agg_dict.items() if k in df.columns}
-    
-    resampled = df.resample(period).agg(existing_agg)
-    resampled = resampled.dropna() # Remove empty periods
+    agg = {k: v for k, v in {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}.items() if k in df.columns}
+    resampled = df.resample(period).agg(agg).dropna()
 
-    # Cap future dates to the last date in the original dataframe
-    # Only for Daily/Weekly/Monthly/Yearly (D, W, ME, YE), NOT intraday (m/min/h)
-    if not resampled.empty and not df.empty and not (isinstance(period, str) and ('m' in period.lower() or 'h' in period.lower())):
-        last_orig_date = df.index[-1]
-        if resampled.index[-1] > last_orig_date:
+    # 미래 날짜 캡: 리샘플 주기 끝이 원본 마지막 날보다 이후면 원본 날짜로 교체
+    is_intraday = isinstance(period, str) and any(c in period.lower() for c in ("m", "h", "min"))
+    if not resampled.empty and not df.empty and not is_intraday:
+        last_orig = df.index[-1]
+        if resampled.index[-1] > last_orig:
             idx = resampled.index.tolist()
-            idx[-1] = last_orig_date
+            idx[-1] = last_orig
             resampled.index = pd.DatetimeIndex(idx)
-            
+
     return resampled

@@ -3,15 +3,22 @@
 이 파일은 앱의 진입점입니다. UI 레이아웃, 탭, 사이드바 배치만 담당하며
 실제 로직은 각 모듈(krx_data, us_data, kr_ui, utils 등)에 위임합니다.
 """
+import concurrent.futures
 import io
+import json
+import os
+import subprocess
 import time
 import traceback
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 import yfinance as yf
+from bs4 import BeautifulSoup
 from streamlit_local_storage import LocalStorage
 
 from ai_client import get_gemini_response
@@ -141,9 +148,6 @@ def get_major_indices() -> dict:
 def get_kospi_night_futures() -> dict | None:
     """https://longshortnow.com/ 에서 KOSPI 야간선물 데이터를 스크래핑합니다."""
     try:
-        import requests
-        from bs4 import BeautifulSoup
-        
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
@@ -203,8 +207,8 @@ _SIDEBAR_URLS = {
 
 def _render_sidebar() -> None:
     if st.sidebar.button("새로고침 (Refresh)"):
-        from krx_data import fetch_krx_data
-        from us_data import fetch_us_data, get_us_most_active
+        from krx_data import fetch_krx_data  # noqa: PLC0415 — 순환 import 방지
+        from us_data import fetch_us_data, get_us_most_active  # noqa: PLC0415
         get_major_indices.clear()
         get_kospi_night_futures.clear()
         fetch_krx_data.clear()
@@ -253,7 +257,6 @@ def _render_sidebar() -> None:
     with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
         st.write("KRX 데이터 조회가 안 될 경우 쿠키를 갱신하세요.")
         if st.button("🚀 로컬 브라우저에서 쿠키 자동 추출", help="Antigravity 브라우저가 data.krx.co.kr에 로그인된 상태여야 합니다."):
-            import subprocess
             with st.spinner("쿠키 추출 중..."):
                 try:
                     res = subprocess.run(["python", "get_browser_cookies.py"], capture_output=True, text=True)
@@ -279,8 +282,6 @@ def _render_sidebar() -> None:
         new_jsid = st.text_input("복사한 JSESSIONID 붙여넣기")
         if st.button("수동 쿠키 저장"):
             if new_jsid:
-                import json
-                from pathlib import Path
                 cookie_file = Path("krx_cookies.json")
                 try:
                     if cookie_file.exists():
@@ -331,15 +332,13 @@ _LTWC_JS = "https://unpkg.com/lightweight-charts/dist/lightweight-charts.standal
 
 def _bars_to_js(bars: list) -> str:
     """OHLCV bar list를 TradingView Lightweight Charts JS 배열 문자열로 변환합니다."""
-    import json as _j
-    return _j.dumps(bars)
+    return json.dumps(bars)
 
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_yf_1m(ticker_yf: str) -> list:
     """yfinance로 1분봉 데이터를 가져와서 TradingView Lightweight 형식으로 반환합니다."""
-    import yfinance as _yf
-    df = _yf.download(ticker_yf, period="1d", interval="1m", progress=False)
+    df = yf.download(ticker_yf, period="1d", interval="1m", progress=False)
     if df.empty:
         return []
     # MultiIndex 평탄화
@@ -499,13 +498,11 @@ def render_realtime_chart(ticker: str, currency: str = "KRW", key_prefix: str = 
     time.sleep(refresh_sec)
     st.rerun(scope="fragment")
 
-import json as _json
-
 def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str) -> None:
     st.caption("🚀 버튼 클릭 한 번으로 프롬프트 복사 + AI 채팅 열기!")
-    
+
     def _copy_btn(label: str, text: str, url: str, bg: str, btn_id: str) -> str:
-        t_json = _json.dumps(text)
+        t_json = json.dumps(text)
         return f"""
         <button id="{btn_id}" style="background:{bg};color:white;border:none;padding:10px 0;width:100%;
         border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">{label}</button>
@@ -953,8 +950,6 @@ name_to_ticker, sorted_names = build_name_to_ticker(ticker_to_name)
 
 # 백그라운드에서 FDR 목록 업데이트 (캐시 만료된 경우만)
 def _refresh_mapping_bg():
-    import time
-    import os
     _cache = os.path.join(os.path.dirname(os.path.abspath(__file__)), "krx_mapping_cache.json")
     try:
         if os.path.exists(_cache) and (time.time() - os.path.getmtime(_cache)) < 86400:
@@ -963,8 +958,7 @@ def _refresh_mapping_bg():
     except Exception:
         pass
 
-import concurrent.futures as _cf
-_cf.ThreadPoolExecutor(max_workers=1).submit(_refresh_mapping_bg)
+concurrent.futures.ThreadPoolExecutor(max_workers=1).submit(_refresh_mapping_bg)
 
 @st.fragment
 def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
