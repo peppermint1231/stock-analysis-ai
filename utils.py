@@ -98,7 +98,8 @@ def resample_ohlcv(df, period):
     resampled = resampled.dropna() # Remove empty periods
 
     # Cap future dates to the last date in the original dataframe
-    if not resampled.empty and not df.empty:
+    # Only for Daily/Weekly/Monthly/Yearly (D, W, ME, YE), NOT intraday (m/min/h)
+    if not resampled.empty and not df.empty and not (isinstance(period, str) and ('m' in period.lower() or 'h' in period.lower())):
         last_orig_date = df.index[-1]
         if resampled.index[-1] > last_orig_date:
             idx = resampled.index.tolist()

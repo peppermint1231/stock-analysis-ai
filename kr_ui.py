@@ -527,53 +527,25 @@ def render_krx_nxt_ranking(
 
 # ─── Individual Stock KRX+NXT Card ──────────────────────────────────────────
 
-@st.cache_data(ttl=30, show_spinner=False)
-def _fetch_naver_realtime(code: str) -> dict:
-    import requests
-    from bs4 import BeautifulSoup
-    try:
-        url = f"https://finance.naver.com/item/sise.naver?code={code}"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        html = res.content.decode("euc-kr", errors="replace")
-        soup = BeautifulSoup(html, "html.parser")
-
-        import re
-        def _ext(sel):
-            t = soup.select_one(sel)
-            if not t: return 0.0
-            text = t.get_text(strip=True)
-            m = re.sub(r'[^0-9.]', '', text)
-            try: return float(m) if m else 0.0
-            except ValueError: return 0.0
-
-        rate_el = soup.select_one("#_rate")
-        rate_text = rate_el.get_text(strip=True) if rate_el else ""
-        
-        # Check if the rate has a minus sign, or if the element explicitly has the 'nv01' (blue/down) class
-        is_down = "-" in rate_text or (rate_el and "nv01" in rate_el.get("class", []) + [c for child in rate_el.find_all() for c in child.get("class", [])])
-        
-        p = _ext("#_nowVal")
-        diff = -_ext("#_diff") if is_down else _ext("#_diff")
-        rate = -_ext("#_rate") if is_down else _ext("#_rate")
-
-        return {
-            "price": p, "diff": diff, "rate": rate,
-            "vol": _ext("#_quant"), "val": _ext("#_amount") * 1_000_000,
-            "ok": p > 0
-        }
-    except Exception:
-        return {"price": 0, "diff": 0, "rate": 0, "vol": 0, "val": 0, "ok": False}
+@st.cache_data(ttl=5, show_spinner=False)
+def _fetch_kis_realtime(code: str) -> dict:
+    from kis_api import get_current_price
+    
+    data = get_current_price(code)
+    if data and data.get("ok"):
+        return data
+    return {"price": 0, "diff": 0, "rate": 0, "vol": 0, "val": 0, "open": 0, "high": 0, "low": 0, "ok": False}
 
 
 @st.fragment
 def render_stock_nxt_card(code: str, name: str) -> None:
-    """단일 종목의 네이버 실시간 시세와 NXT 거래 데이터를 비교 표시합니다."""
+    """단일 종목의 한국투자증권 실시간 시세와 NXT 거래 데이터를 비교 표시합니다."""
     from krx_data import get_nxt_ranking
 
     col_a, col_b = st.columns(2)
     with col_a:
-        with st.spinner("네이버 실시간 시세 조회 중..."):
-            nav = _fetch_naver_realtime(code)
+        with st.spinner("한국투자증권 실시간 시세 조회 중..."):
+            nav = _fetch_kis_realtime(code)
     with col_b:
         with st.spinner("NXT 시세 조회 중 (20분 지연)..."):
             nxt_df = get_nxt_ranking(rows=200)
@@ -588,7 +560,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        st.markdown(f"**📡 [네이버 금융 실시간](https://finance.naver.com/item/main.naver?code={code})** (KRX+NXT 통합 최선가 · 약 30초 지연)")
+        st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · 완전한 실시간)")
         c1, c2, c3, c4 = st.columns(4)
         sq = "+" if nav["rate"] > 0 else ""
         ar = "▲" if nav["rate"] > 0 else ("▼" if nav["rate"] < 0 else "—")

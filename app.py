@@ -897,10 +897,41 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 @st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
 def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
     df_1m = df_1m.sort_index()
-    df_60 = calculate_indicators(resample_ohlcv(df_1m, "60min"))
-    df_30 = calculate_indicators(resample_ohlcv(df_1m, "30min"))
-    df_15 = calculate_indicators(resample_ohlcv(df_1m, "15min"))
-    df_5 = calculate_indicators(resample_ohlcv(df_1m, "5min"))
+
+    def _resample_and_append_close(df, freq):
+        resampled = resample_ohlcv(df, freq)
+        
+        # 30분, 60분 등의 큰 분봉 리샘플링 시 한국장 마감(15:30) 가격이 제대로 마지막 캔들로 남지 않을 수 있으므로
+        # 각 날짜별 15:30 (또는 장 마감 시간) 캔들을 강제로 추가/보정해줍니다.
+        try:
+            dates = pd.Series(df.index.date).unique()
+            for d in dates:
+                day_df = df[df.index.date == d]
+                if not day_df.empty:
+                    last_time = day_df.index[-1]
+                    # 장 마감 시간대(15:30)의 가격 정보가 원본에 있다면
+                    if last_time.hour >= 15 and last_time.minute >= 30:
+                        close_time = datetime.combine(d, time(15, 30))
+                        if close_time not in resampled.index and last_time >= close_time:
+                            last_row = day_df.loc[last_time]
+                            new_row = pd.DataFrame({
+                                "Open": [last_row["Close"]], 
+                                "High": [last_row["Close"]], 
+                                "Low": [last_row["Close"]],
+                                "Close": [last_row["Close"]], 
+                                "Volume": [0]
+                            }, index=[close_time])
+                            resampled = pd.concat([resampled, new_row])
+            resampled = resampled.sort_index()
+        except Exception as e:
+            print(f"Error appending close bar in resampling {freq}: {e}")
+            
+        return calculate_indicators(resampled)
+
+    df_60 = _resample_and_append_close(df_1m, "60min")
+    df_30 = _resample_and_append_close(df_1m, "30min")
+    df_15 = _resample_and_append_close(df_1m, "15min")
+    df_5 = _resample_and_append_close(df_1m, "5min")
     df_1 = calculate_indicators(df_1m)
     return df_60, df_30, df_15, df_5, df_1
 
@@ -1044,7 +1075,8 @@ with tab_kr_indie:
             df_kr, market_name = fetch_krx_data(kr_code, s_str, e_str, fetch_int_kr, tuple(extra_data_sel), include_nxt=run_nxt)
 
             if st.session_state.get("run_krx_nxt") and not df_kr.empty:
-                from krx_data import get_nxt_ranking, _fetch_naver_realtime_price
+                from krx_data import get_nxt_ranking
+                from kis_api import get_current_price
                 nxt_df = get_nxt_ranking(rows=200)
                 
                 nxt_vol = 0.0
@@ -1054,10 +1086,10 @@ with tab_kr_indie:
                     nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
                     nxt_price = float(nxt_df.loc[kr_code, "현재가"])
                 else:
-                    # Fallback to Naver Realtime if not in Top 200 NXT ranking
-                    nav_rt = _fetch_naver_realtime_price(kr_code)
-                    if nav_rt and nav_rt.get("current", 0) > 0:
-                        nxt_price = float(nav_rt["current"])
+                    # Fallback to KIS Realtime if not in Top 200 NXT ranking
+                    kis_rt = get_current_price(kr_code)
+                    if kis_rt and kis_rt.get("ok"):
+                        nxt_price = float(kis_rt["price"])
                 
                 if nxt_price > 0:
                     kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
