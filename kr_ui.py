@@ -546,7 +546,12 @@ def _fetch_naver_realtime(code: str) -> dict:
             try: return float(m) if m else 0.0
             except ValueError: return 0.0
 
-        is_down = bool(soup.select_one(".dn"))
+        rate_el = soup.select_one("#_rate")
+        rate_text = rate_el.get_text(strip=True) if rate_el else ""
+        
+        # Check if the rate has a minus sign, or if the element explicitly has the 'nv01' (blue/down) class
+        is_down = "-" in rate_text or (rate_el and "nv01" in rate_el.get("class", []) + [c for child in rate_el.find_all() for c in child.get("class", [])])
+        
         p = _ext("#_nowVal")
         diff = -_ext("#_diff") if is_down else _ext("#_diff")
         rate = -_ext("#_rate") if is_down else _ext("#_rate")
