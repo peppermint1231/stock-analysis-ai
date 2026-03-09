@@ -99,7 +99,7 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
     last_time = "153000"
     last_date = ""
     
-    for _ in range(15): # Max 15 chunks = ~450 records (~1.1 days per chunk at 380 min/day, so total maybe 5 days)
+    for _ in range(100): # Max 100 chunks = ~3000 records (~8 days of 1m data)
         params = {
             "FID_ETC_CLS_CODE": "",
             "FID_COND_MRKT_DIV_CODE": "J",
@@ -123,8 +123,6 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
 
                 all_records.extend(records)
                 last_time = records[-1].get("stck_cntg_hour", "090000")
-                if "090000" in last_time:  # reach the morning
-                    last_time = "153000" # reset for previous day (KIS API handles the jump backward if YN=Y)
                 time.sleep(0.1) # basic rate limit
             else:
                 break
@@ -147,11 +145,14 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
         'stck_prpr': 'Close',
         'cntg_vol': 'Volume'
     })
+    
+    # Keep only OHLCV and Datetime to prevent ValueError with style formatting later
+    df = df[['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']]
+    
     for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
         df[col] = df[col].astype(float)
         
     df = df.set_index('Datetime').sort_index()
-    # If the user queried from 153000 down to 090000 across multiple days, `FID_PW_DATA_INCU_YN: Y` natively supports it depending on the tr_id. 
     return df
 
 

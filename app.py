@@ -1095,8 +1095,8 @@ with tab_kr_indie:
                     kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
                     last_idx = df_kr.index[-1]
                     
-                    # 장 마감 후(15:30 이후) 일 때 NXT 시세/Naver 실시간 시세로 분봉 추가 또는 최신봉 갱신
-                    if kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30):
+                    # 장 전(09:00 이전) 또는 장 마감 후(15:30 이후) 일 때 NXT 시세/KIS 실시간 시세로 분봉 추가 또는 최신봉 갱신
+                    if kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30):
                         current_minute = kst_now.replace(second=0, microsecond=0)
                         # 인트라데이 차트인 경우
                         if fetch_int_kr in ["1분 (1 Minute)", "3분 (3 Minute)", "5분 (5 Minute)", "10분 (10 Minute)", "30분 (30 Minute)", "1시간 (60 Minute)"]:
@@ -1150,7 +1150,7 @@ with tab_kr_indie:
             elif interval_kr_sel == "시간/분봉 종합분석":
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
-                st.caption("⚠️ yfinance 데이터는 약 15~20분 지연됩니다. 마지막 봉은 네이버 실시간 또는 NXT 시세로 보정됩니다.")
+                st.caption("✅ 한국투자증권 Open API를 통한 실시간 무지연 데이터입니다.")
                 
                 if st.session_state.get("run_krx_nxt"):
                     render_stock_nxt_card(kr_code, selected_name)

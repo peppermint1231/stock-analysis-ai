@@ -27,13 +27,13 @@ def format_price_change(val) -> str:
 
 
 def add_arrow(val) -> str:
-    """등락률 값에 방향 화살표를 추가합니다."""
+    """등락률 값에 부호만 추가합니다 (화살표 제거)."""
     if isinstance(val, (int, float)):
         if val > 0:
-            return f"▲ {val:,.2f}"
+            return f"+{val:,.2f}"
         elif val < 0:
-            return f"▼ {abs(val):,.2f}"
-        return f"- {val:,.2f}"
+            return f"{val:,.2f}"
+        return f"{val:,.2f}"
     return str(val)
 
 
@@ -563,8 +563,9 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · 완전한 실시간)")
         c1, c2, c3, c4 = st.columns(4)
         sq = "+" if nav["rate"] > 0 else ""
-        ar = "▲" if nav["rate"] > 0 else ("▼" if nav["rate"] < 0 else "—")
-        c1.metric("현재가", f"{nav['price']:,.0f} 원", f"{ar} {sq}{nav['rate']:.2f}%")
+        col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
+        
+        c1.markdown(f"<div style='font-size:0.9rem; color:gray;'>현재가</div><div style='font-size:1.8rem; font-weight:bold;'>{nav['price']:,.0f} 원</div><div style='color:{col_str}; font-weight:bold; font-size:1rem;'>{sq}{nav['rate']:.2f}%</div>", unsafe_allow_html=True)
         c2.metric("전일대비", f"{sq}{nav['diff']:,.0f} 원")
         c3.metric("거래량", f"{nav['vol']:,.0f} 주" if nav["vol"] > 0 else "—")
         c4.metric("거래대금", f"{nav['val']/1e8:,.1f} 억원" if nav["val"] > 0 else "—")
@@ -591,9 +592,10 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         nv = float(nxt_row["NXT거래량"])
         nva = float(nxt_row["NXT거래대금"])
         ns = "+" if nr > 0 else ""
-        na = "▲" if nr > 0 else ("▼" if nr < 0 else "—")
+        n_col = "#D32F2F" if nr > 0 else "#1976D2" if nr < 0 else "inherit"
+        
         d1, d2, d3 = st.columns(3)
-        d1.metric("NXT 현재가", f"{np:,.0f} 원", f"{na} {ns}{nr:.2f}%")
+        d1.markdown(f"<div style='font-size:0.9rem; color:gray;'>NXT 현재가</div><div style='font-size:1.8rem; font-weight:bold;'>{np:,.0f} 원</div><div style='color:{n_col}; font-weight:bold; font-size:1rem;'>{ns}{nr:.2f}%</div>", unsafe_allow_html=True)
         d2.metric("NXT 거래량", f"{nv:,.0f} 주")
         d3.metric("NXT 거래대금", f"{nva / 1e8:,.1f} 억원")
         if nav["ok"] and nav["vol"] > 0 and nv > 0:
