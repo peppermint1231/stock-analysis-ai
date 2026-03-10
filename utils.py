@@ -62,7 +62,7 @@ def resample_ohlcv(df: pd.DataFrame, period: str) -> pd.DataFrame:
     resampled = df.resample(period).agg(agg).dropna()
 
     # 미래 날짜 캡: 리샘플 주기 끝이 원본 마지막 날보다 이후면 원본 날짜로 교체
-    is_intraday = isinstance(period, str) and any(c in period.lower() for c in ("m", "h", "min"))
+    is_intraday = isinstance(period, str) and any(k in period.lower() for k in ("min", "h")) and period not in ("ME", "YE")
     if not resampled.empty and not df.empty and not is_intraday:
         last_orig = df.index[-1]
         if resampled.index[-1] > last_orig:
