@@ -1060,8 +1060,11 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
             yf_past = pd.DataFrame()
 
         # 당일 데이터: KIS 1분봉을 해당 간격으로 리샘플링
+        # yfinance interval("60m"등)은 pandas resample freq와 다름 → 변환 필요
+        _YF_TO_PANDAS_FREQ = {"60m": "60min", "30m": "30min", "15m": "15min", "5m": "5min", "1m": "1min"}
+        pandas_freq = _YF_TO_PANDAS_FREQ.get(interval, interval)
         if not kis_today.empty:
-            kis_resampled = resample_ohlcv(kis_today, interval) if interval != "1m" else kis_today.copy()
+            kis_resampled = resample_ohlcv(kis_today, pandas_freq) if interval != "1m" else kis_today.copy()
         else:
             kis_resampled = pd.DataFrame()
 
