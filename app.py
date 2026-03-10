@@ -1023,7 +1023,7 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 
 
 @st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
-def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
+def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: str = ""):
     """각 분봉별로 yfinance에서 최대 기간 데이터를 직접 수집하고, 당일은 KIS 1분봉으로 보강합니다."""
     import yfinance as yf
     from kis_api import _fetch_kis_today_minutes
@@ -1070,6 +1070,8 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
             return pd.DataFrame()
         merged = pd.concat(parts).sort_index()
         merged = merged[~merged.index.duplicated(keep="last")]
+        # 최종 안전장치: 현재 시각 이후 & 장외 시간 제거
+        merged = merged[(merged.index <= kst_now) & (merged.index.hour >= 9) & (merged.index.hour < 16)]
         return merged
 
     # 각 분봉별 기간: 60분=4주, 30분=2주, 15분=1주, 5분=3일, 1분=1일
@@ -1310,7 +1312,8 @@ with tab_kr_indie:
                 if st.session_state.get("run_krx_nxt"):
                     render_stock_nxt_card(kr_code, selected_name)
 
-                df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr)
+                _today_cache = datetime.now(tz=timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H")
+                df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr, _cache_date=_today_cache)
                 t1, t2, t3, t4, t5, t6 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 30분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
                     render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "30min": df_30, "15min": df_15, "5min": df_5, "1min": df_1}, [])
