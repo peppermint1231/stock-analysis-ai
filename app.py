@@ -278,16 +278,31 @@ def get_kospi_night_futures() -> dict | None:
 
         pct = (diff / value_day) * 100
 
-        ttime = str(info.get("ttime", "")).strip().zfill(6)
-        # ttime은 전일 기준 연장시간 (예: 300000 = 익일 06:00:00)
-        hh = int(ttime[:2])
-        mm = ttime[2:4]
-        ss = ttime[4:6]
-        if hh >= 24:
-            hh -= 24  # 30 → 06, 25 → 01 등
-        time_str = f"{hh:02d}:{mm}:{ss}"
+        # tstamp(UTC ISO) → KST / 시카고(CT) 시간 변환
+        tstamp = info.get("tstamp", "")
+        kst_str = ""
+        ct_str = ""
+        if tstamp:
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            try:
+                utc_dt = _dt.fromisoformat(tstamp.replace("Z", "+00:00"))
+                kst_dt = utc_dt.astimezone(_tz(_td(hours=9)))
+                # 시카고: UTC-6(CST) / UTC-5(CDT) — 간이 DST 판정 (3월 둘째 일요일 ~ 11월 첫째 일요일)
+                year = utc_dt.year
+                # 3월 둘째 일요일
+                mar1 = _dt(year, 3, 1, tzinfo=_tz.utc)
+                dst_start = mar1 + _td(days=(6 - mar1.weekday()) % 7 + 7)
+                # 11월 첫째 일요일
+                nov1 = _dt(year, 11, 1, tzinfo=_tz.utc)
+                dst_end = nov1 + _td(days=(6 - nov1.weekday()) % 7)
+                ct_offset = _td(hours=-5) if dst_start <= utc_dt.replace(hour=2) < dst_end else _td(hours=-6)
+                ct_dt = utc_dt.astimezone(_tz(ct_offset))
+                kst_str = kst_dt.strftime("%m/%d %H:%M:%S")
+                ct_str = ct_dt.strftime("%m/%d %H:%M:%S")
+            except Exception:
+                pass
 
-        return {"price": price, "diff": diff, "pct": pct, "time": time_str}
+        return {"price": price, "diff": diff, "pct": pct, "kst_time": kst_str, "ct_time": ct_str}
 
     except Exception:
         return None
@@ -354,16 +369,22 @@ def _render_sidebar() -> None:
     for name, (val, diff, pct) in data.get("indices", {}).items():
         url = _SIDEBAR_URLS.get(name, "#")
         val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
-        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.05rem;font-weight:bold;text-decoration:none;'>{name}</a>", unsafe_allow_html=True)
+        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{name}</a>", unsafe_allow_html=True)
         st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
 
     # ── 코스피 야간선물 ─────────────────────────────────────────────────────────
     night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
     night = get_kospi_night_futures()
-    st.sidebar.markdown(f"<a href='{night_url}' style='font-size:1.05rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<a href='{night_url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
     if night:
-        nt = night.get("time", "")
-        time_lbl = f"(기준: {nt})" if nt else ""
+        kst_t = night.get("kst_time", "")
+        ct_t = night.get("ct_time", "")
+        time_parts = []
+        if kst_t:
+            time_parts.append(f"KST {kst_t}")
+        if ct_t:
+            time_parts.append(f"CT {ct_t}")
+        time_lbl = f"(기준: {' / '.join(time_parts)})" if time_parts else ""
         st.sidebar.caption(time_lbl)
         pct_sign = "+" if night["pct"] >= 0 else ""
         diff_sign = "+" if night["diff"] >= 0 else ""
