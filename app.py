@@ -328,6 +328,63 @@ _SIDEBAR_URLS = {
 }
 
 
+@st.fragment
+def _render_sidebar_indices() -> None:
+    """시장 지수를 프래그먼트로 렌더링 — 자동 갱신 시 사이드바만 재실행됩니다."""
+    with st.sidebar:
+        sidebar_auto = st.toggle("🔄 자동 갱신 (30초)", key="sidebar_auto_refresh", value=False)
+        if sidebar_auto:
+            st_autorefresh(interval=30_000, limit=None, key="sidebar_refresh")
+            get_major_indices.clear()
+            get_kospi_night_futures.clear()
+
+        data = get_major_indices()
+
+        if not data:
+            st.caption("지수 데이터 로딩 실패")
+            return
+
+        st.caption(f"기준: {now_kst().strftime('%m/%d %H:%M:%S')} (KST)")
+
+        for name, (val, diff, pct) in data.get("indices", {}).items():
+            url = _SIDEBAR_URLS.get(name, "#")
+            val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
+            st.markdown(f"**[{name}]({url})**")
+            st.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
+
+        # ── 코스피 야간선물 ─────────────────────────────────────────────────────
+        night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
+        night = get_kospi_night_futures()
+        st.markdown(f"**[🌙 KOSPI 야간선물]({night_url})**")
+        if night:
+            nt = night.get("time", "")
+            time_lbl = f"(기준: {nt})" if nt else ""
+            st.caption(time_lbl)
+            pct_sign = "+" if night["pct"] >= 0 else ""
+            diff_sign = "+" if night["diff"] >= 0 else ""
+            st.metric(
+                " ",
+                f"{night['price']:,.2f}",
+                f"{diff_sign}{night['diff']:,.2f} ({pct_sign}{night['pct']:.2f}%)",
+                label_visibility="collapsed",
+            )
+        else:
+            fallback = get_kospi_futures_last()
+            if fallback:
+                fb_time = fallback.get("time", "")
+                st.caption(f"야간장 미체결 · 최종 선물 데이터 ({fb_time})" if fb_time else "야간장 미체결 · 최종 선물 데이터")
+                pct_sign = "+" if fallback["pct"] >= 0 else ""
+                diff_sign = "+" if fallback["diff"] >= 0 else ""
+                st.metric(
+                    " ",
+                    f"{fallback['price']:,.2f}",
+                    f"{diff_sign}{fallback['diff']:,.2f} ({pct_sign}{fallback['pct']:.2f}%)",
+                    label_visibility="collapsed",
+                )
+            else:
+                st.caption("데이터 없음")
+
+
 def _render_sidebar() -> None:
     if st.sidebar.button("새로고침 (Refresh)"):
         from krx_data import fetch_krx_data  # noqa: PLC0415 — 순환 import 방지
@@ -344,59 +401,7 @@ def _render_sidebar() -> None:
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🌍 주요 시장 지수")
-
-    sidebar_auto = st.sidebar.toggle("🔄 자동 갱신 (30초)", key="sidebar_auto_refresh", value=False)
-    if sidebar_auto:
-        st_autorefresh(interval=30_000, limit=None, key="sidebar_refresh")
-        get_major_indices.clear()
-        get_kospi_night_futures.clear()
-
-    data = get_major_indices()
-
-    if not data:
-        st.sidebar.caption("지수 데이터 로딩 실패")
-        return
-
-    st.sidebar.caption(f"기준: {now_kst().strftime('%m/%d %H:%M:%S')} (KST)")
-
-    for name, (val, diff, pct) in data.get("indices", {}).items():
-        url = _SIDEBAR_URLS.get(name, "#")
-        val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
-        st.sidebar.markdown(f"**[{name}]({url})**")
-        st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
-
-    # ── 코스피 야간선물 ─────────────────────────────────────────────────────────
-    night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
-    night = get_kospi_night_futures()
-    st.sidebar.markdown(f"**[🌙 KOSPI 야간선물]({night_url})**")
-    if night:
-        nt = night.get("time", "")
-        time_lbl = f" (기준: {nt})" if nt else ""
-        st.sidebar.caption(time_lbl)
-        pct_sign = "+" if night["pct"] >= 0 else ""
-        diff_sign = "+" if night["diff"] >= 0 else ""
-        st.sidebar.metric(
-            " ",
-            f"{night['price']:,.2f}",
-            f"{diff_sign}{night['diff']:,.2f} ({pct_sign}{night['pct']:.2f}%)",
-            label_visibility="collapsed",
-        )
-    else:
-        # 야간선물 데이터 없으면 KOSPI200 선물 최종 체결가로 fallback
-        fallback = get_kospi_futures_last()
-        if fallback:
-            fb_time = fallback.get("time", "")
-            st.sidebar.caption(f"야간장 미체결 · 최종 선물 데이터 ({fb_time})" if fb_time else "야간장 미체결 · 최종 선물 데이터")
-            pct_sign = "+" if fallback["pct"] >= 0 else ""
-            diff_sign = "+" if fallback["diff"] >= 0 else ""
-            st.sidebar.metric(
-                " ",
-                f"{fallback['price']:,.2f}",
-                f"{diff_sign}{fallback['diff']:,.2f} ({pct_sign}{fallback['pct']:.2f}%)",
-                label_visibility="collapsed",
-            )
-        else:
-            st.sidebar.caption("데이터 없음")
+    _render_sidebar_indices()
 
     st.sidebar.markdown("---")
     with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
