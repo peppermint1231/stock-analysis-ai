@@ -444,7 +444,7 @@ def _render_sidebar() -> None:
 _render_sidebar()
 
 # ─── Title & Tabs ─────────────────────────────────────────────────────────────
-st.title("📈 AI 주식 기술적 분석 (v2.3)")
+st.title("📈 AI 주식 기술적 분석 (v3.0)")
 tab_kr_indie, tab_us_indie, tab_kr_market, tab_us_market = st.tabs([
     "KR 국내 주식 개별 분석",
     "US 해외 주식 개별 분석",
