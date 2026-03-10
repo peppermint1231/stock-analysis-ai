@@ -1,6 +1,6 @@
 """prompts.py — AI 분석 프롬프트 생성 모듈
 
-ChatGPT / Gemini 에 전달할 기술적 분석 프롬프트를 생성합니다.
+ChatGPT / Gemini / Claude 에 전달할 기술적 분석 프롬프트를 생성합니다.
 """
 from __future__ import annotations
 
@@ -373,3 +373,240 @@ def generate_multi_timeframe_chatgpt_prompt(
    }}
    ```
 """
+
+
+# ─── Claude (Opus) 전용 프롬프트 ───────────────────────────────────────────────
+
+def generate_claude_prompt(
+    ticker: str, name: str, market: str, currency: str, timeframe: str,
+    df: pd.DataFrame, news_list: list | None = None,
+    holding_status: str = "관망(중립)", avg_price: float | None = None,
+    start_dt_str: str | None = None, end_dt_str: str | None = None,
+) -> str:
+    """Claude (Opus) 환경에 최적화된 기술적 분석 프롬프트를 생성합니다.
+
+    Claude의 강점을 활용:
+    - XML 태그 기반 구조화된 입력
+    - 장문 컨텍스트에서의 정밀한 데이터 분석
+    - 다단계 논리 추론 (chain-of-thought)
+    - 불확실성 표현과 시나리오 분기
+    """
+    csv_data = df.to_csv(index=True)
+    news_str = _format_news(news_list)
+    advice = _holding_advice(holding_status, currency, avg_price)
+
+    return f"""<system>
+당신은 주식 기술적 분석 전문가이자 리스크 관리 어드바이저입니다.
+
+<principles>
+- 데이터에 근거한 분석만 수행합니다. 추측은 반드시 "추정"으로 명시합니다.
+- 각 판단에 대해 확신도(confidence)를 high/medium/low로 표기합니다.
+- 강세/약세 시나리오를 모두 제시하고, 어떤 조건에서 결론이 뒤집히는지(invalidation trigger) 명시합니다.
+- 투자자의 현재 포지션 상태를 최우선으로 고려합니다.
+</principles>
+
+<analysis_framework>
+6가지 독립 방법론을 순차 평가 후 가중 종합합니다:
+1. 추세추종 (Trend) — MA/EMA 배열, ADX, 추세선 | 가중치 25%
+2. 모멘텀 (Momentum) — RSI, MACD, 스토캐스틱 | 가중치 20%
+3. 변동성 (Volatility) — 볼린저 밴드, ATR | 가중치 15%
+4. 지지/저항 (S/R) — 피보나치, 피벗, 과거 고저점 | 가중치 20%
+5. 거래량/수급 (Volume) — OBV, 거래량 추이 | 가중치 10%
+6. 차트 패턴 (Pattern) — 캔들스틱, 클래식 패턴 | 가중치 10%
+</analysis_framework>
+
+<scoring>
+각 방법론별 점수: -2(강한 약세) / -1(약세) / 0(중립) / +1(강세) / +2(강한 강세)
+종합 점수 = Σ(점수 × 가중치), 범위 -2.0 ~ +2.0
+</scoring>
+
+<output_rules>
+- 한국어로 작성, 전문 용어는 영문 병기 (예: 상대강도지수(RSI))
+- 모든 가격 레벨은 구체적 숫자로 제시
+- 분석 결과 맨 끝에 JSON을 코드블록으로 출력
+</output_rules>
+</system>
+
+<user_context>
+<investor_status>{holding_status}</investor_status>
+<investor_advice>{advice}</investor_advice>
+</user_context>
+
+<market_data>
+<meta>
+ticker={ticker}
+name={name}
+market={market}
+currency={currency}
+timeframe={timeframe}
+timezone=Asia/Seoul
+asof={pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+data_range={start_dt_str} ~ {end_dt_str}
+</meta>
+
+<price_indicators>
+{csv_data}
+</price_indicators>
+
+<news>
+{news_str}
+</news>
+</market_data>
+
+<instructions>
+위 데이터를 기반으로 기술적 분석 리포트를 작성해주세요.
+
+웹 검색이 가능하다면 "{name}" 관련 최근 14일 뉴스를 10~20개 추가 수집하여 분석에 반영해주세요.
+
+<required_sections>
+1. **데이터 품질 점검**
+   - 데이터 기간: {start_dt_str} ~ {end_dt_str}
+   - 누락/이상치/분할·배당 조정 여부 확인
+   - 분석 신뢰도 판정 (분석 가능/주의/불가)
+
+2. **방법론별 독립 분석** (각각에 대해: 사용 지표 → 현재 신호 → 점수 → 근거 → 핵심 레벨)
+   2-1. 추세추종 (MA/EMA/ADX)
+   2-2. 모멘텀 (RSI/MACD/Stochastic)
+   2-3. 변동성 (Bollinger/ATR)
+   2-4. 지지·저항 (Pivot/Fibonacci/고저점)
+   2-5. 거래량·수급 (Volume/OBV)
+   2-6. 차트 패턴 (헤드앤숄더, 쌍바닥, 플래그, 캔들 패턴 등)
+
+3. **뉴스 & 이벤트 리스크**
+   - 각 뉴스: 사실 요약 → 시장 영향 경로 → 기술적 신호와의 정합성
+   - 향후 1~2주 주요 이벤트 캘린더 (실적 발표, 금리 결정 등)
+
+4. **시나리오 분석** (Claude 특화)
+   - 🟢 강세 시나리오: 조건, 목표가, 확률(추정)
+   - 🔴 약세 시나리오: 조건, 지지선, 확률(추정)
+   - ⚪ 기본 시나리오: 가장 가능성 높은 전개
+
+5. **종합 결론**
+   - 가중치별 점수 테이블
+   - 종합 점수 및 최종 액션 (매수/관망/매도)
+   - 확신도 (high/medium/low)
+
+6. **매매 실행 계획** (투자자 상태: {holding_status})
+   - {advice}
+   - 분할 진입 2~3단계 (구체적 가격)
+   - 손절: 하드 스탑 / 소프트 스탑
+   - 목표가: 보수적 / 기본 / 공격적
+   - 무효화 트리거 (이 조건 충족 시 전략 재검토)
+
+7. **JSON 요약** (파싱용, 코드블록)
+</required_sections>
+</instructions>
+
+<json_schema>
+{_SINGLE_TF_SCHEMA}
+</json_schema>"""
+
+
+def generate_multi_timeframe_claude_prompt(
+    ticker: str, name: str, market: str, currency: str,
+    timeframe_dfs: dict[str, pd.DataFrame], news_list: list | None = None,
+    holding_status: str = "관망(중립)", avg_price: float | None = None,
+    start_dt_str: str | None = None, end_dt_str: str | None = None,
+) -> str:
+    """Claude (Opus)용 멀티 타임프레임 통합 분석 프롬프트를 생성합니다."""
+    tables_str = _format_tables(timeframe_dfs)
+    news_str = _format_news(news_list)
+    advice = _holding_advice(holding_status, currency, avg_price)
+
+    return f"""<system>
+당신은 멀티 타임프레임(Multi-Timeframe) 기술적 분석 전문가입니다.
+
+<core_methodology>
+Top-Down 분석: 연봉 → 월봉 → 주봉 → 일봉 순서로 큰 그림에서 세부로 내려갑니다.
+핵심 질문 3가지:
+1. 대세 추세(연봉/월봉)가 살아있는가?
+2. 중기 조정(주봉)이 마무리 단계인가?
+3. 단기 진입 타이밍(일봉)이 왔는가?
+</core_methodology>
+
+<principles>
+- 상위 타임프레임의 추세가 하위 타임프레임보다 우선합니다.
+- 타임프레임 간 신호가 일치할수록 신뢰도가 높습니다.
+- 충돌 구간(상위 저항 vs 하위 돌파)은 반드시 명시합니다.
+- 각 판단에 확신도(high/medium/low)를 표기합니다.
+</principles>
+
+<output_rules>
+- 한국어 + 전문 용어 영문 병기
+- 구체적 가격 레벨 필수
+- 마지막에 JSON 코드블록 출력
+</output_rules>
+</system>
+
+<user_context>
+<investor_status>{holding_status}</investor_status>
+<investor_advice>{advice}</investor_advice>
+</user_context>
+
+<market_data>
+<meta>
+ticker={ticker}
+name={name}
+market={market}
+currency={currency}
+timeframes={', '.join(timeframe_dfs.keys())}
+timezone=Asia/Seoul
+asof={pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
+data_range={start_dt_str} ~ {end_dt_str}
+</meta>
+
+{tables_str}
+
+<news>
+{news_str}
+</news>
+</market_data>
+
+<instructions>
+위 멀티 타임프레임 데이터를 종합 분석하여 통합 리포트를 작성해주세요.
+
+웹 검색이 가능하다면 "{name}" 관련 최근 14일 뉴스를 수집하여 반영해주세요.
+
+<required_sections>
+1. **Top-Down 데이터 요약** (분석 기간: {start_dt_str} ~ {end_dt_str})
+   - 연봉: 장기 대세 추세, 핵심 지지/저항 레벨
+   - 월봉: 중장기 추세 및 사이클 위치
+   - 주봉: 중기 추세, 조정 패턴 진행 상태
+   - 일봉: 단기 추세, 거래량 특이사항, 최근 캔들 패턴
+
+2. **타임프레임 정합성 매트릭스** (Claude 특화)
+   | 타임프레임 | 추세 방향 | 모멘텀 | 핵심 레벨 | 확신도 |
+   각 타임프레임 간 동조/충돌 여부를 명확히 판정
+
+3. **핵심 기술적 분석**
+   - 추세 구조 (MA 배열, 다우 이론)
+   - 모멘텀 다이버전스 (RSI/MACD - 타임프레임 간 비교)
+   - 주요 가격 레벨 (다중 타임프레임에서 겹치는 지지/저항 = 컨플루언스 존)
+   - 차트 패턴 (헤드앤숄더, 쌍바닥, 플래그, 웨지 등)
+
+4. **시나리오 분석**
+   - 🟢 강세 시나리오: 트리거 조건, 목표가, 추정 확률
+   - 🔴 약세 시나리오: 트리거 조건, 하방 지지, 추정 확률
+   - ⚪ 기본(Base) 시나리오: 가장 유력한 전개 방향
+
+5. **뉴스 & 이벤트 리스크**
+   - 차트에 이미 반영된 이슈 vs 미반영 리스크
+   - 향후 주요 이벤트 캘린더
+
+6. **최종 트레이딩 전략** (투자자 상태: {holding_status})
+   - {advice}
+   - **결론**: 강력 매수 / 매수 / 중립 / 매도 / 강력 매도
+   - **전략 유형**: 추세 추종 / 역추세 / 박스권 / 차익실현 / 손절
+   - **가격 가이드**:
+     - 진입(Entry): 1차, 2차, 3차 (각 가격 + 비중%)
+     - 목표(Target): 단기 / 중기 / 장기
+     - 손절(Stop): 반드시 준수할 라인
+   - **무효화 트리거**: 이 조건 발생 시 전략 전면 재검토
+
+7. **JSON 요약** (파싱용, 코드블록)
+</required_sections>
+</instructions>
+
+<json_schema>
+{_MULTI_TF_SCHEMA}
+</json_schema>"""

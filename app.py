@@ -28,8 +28,10 @@ from kr_ui import render_krx_nxt_ranking, render_krx_ranking, render_stock_nxt_c
 from krx_data import build_name_to_ticker, clamp_intraday_dates, fetch_krx_data, get_krx_mapping, get_krx_mapping_instant
 from prompts import (
     generate_chatgpt_prompt,
+    generate_claude_prompt,
     generate_gemini_prompt,
     generate_multi_timeframe_chatgpt_prompt,
+    generate_multi_timeframe_claude_prompt,
     generate_multi_timeframe_gemini_prompt,
 )
 from us_data import fetch_us_data, get_sp500_mapping, get_us_most_active, prepare_us_ranking_df
@@ -635,7 +637,7 @@ def render_realtime_chart(ticker: str, currency: str = "KRW", key_prefix: str = 
     time.sleep(refresh_sec)
     st.rerun(scope="fragment")
 
-def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str) -> None:
+def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str, claude_prompt: str = "") -> None:
     st.caption("🚀 버튼 클릭 한 번으로 프롬프트 복사 + AI 채팅 열기!")
 
     def _copy_btn(label: str, text: str, url: str, bg: str, btn_id: str) -> str:
@@ -660,11 +662,14 @@ def render_copy_buttons(gpt_prompt: str, gem_prompt: str, suffix: str) -> None:
         </script>
         """
 
-    lb1, lb2 = st.columns(2)
+    lb1, lb2, lb3 = st.columns(3)
     with lb1:
         components.html(_copy_btn("📋 ChatGPT 복사+열기", gpt_prompt, "https://chatgpt.com/", "#10a37f", f"bgpt_{suffix}"), height=50)
     with lb2:
         components.html(_copy_btn("📋 Gemini 복사+열기", gem_prompt, "https://gemini.google.com/", "#1a73e8", f"bgem_{suffix}"), height=50)
+    with lb3:
+        _cl_text = claude_prompt if claude_prompt else gpt_prompt
+        components.html(_copy_btn("📋 Claude 복사+열기", _cl_text, "https://claude.ai/", "#d97706", f"bcld_{suffix}"), height=50)
 
 
 @st.fragment
@@ -698,6 +703,7 @@ def render_ai_analysis_content(ticker, name, market, currency, interval_label, d
 
     gpt_p = generate_chatgpt_prompt(ticker, name, market, currency, interval_label, display_df, [], holding_status, avg_price, start_dt_str, end_dt_str)
     gem_p = generate_gemini_prompt(ticker, name, market, currency, interval_label, display_df, [], holding_status, avg_price, start_dt_str, end_dt_str)
+    cld_p = generate_claude_prompt(ticker, name, market, currency, interval_label, display_df, [], holding_status, avg_price, start_dt_str, end_dt_str)
 
     st.divider()
     st.subheader("⚡ Gemini AI 자동 분석 리포트")
@@ -719,15 +725,18 @@ def render_ai_analysis_content(ticker, name, market, currency, interval_label, d
 
     st.divider()
     st.subheader("📋 수동 분석용 프롬프트 (Backup)")
-    render_copy_buttons(gpt_p, gem_p, f"single_{ticker}_{key_suffix}")
+    render_copy_buttons(gpt_p, gem_p, f"single_{ticker}_{key_suffix}", claude_prompt=cld_p)
     st.info("아래 코드를 복사하여 AI 서비스에 직접 붙여넣으셔도 됩니다.")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🟢 ChatGPT Plus 용")
         st.code(gpt_p, language=None)
     with c2:
         st.markdown("### 🔵 Gemini (Google One) 용")
         st.code(gem_p, language=None)
+    with c3:
+        st.markdown("### 🟠 Claude (Opus) 용")
+        st.code(cld_p, language=None)
 
 
 @st.fragment
@@ -782,6 +791,7 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
 
     gpt_multi_p = generate_multi_timeframe_chatgpt_prompt(code, name, market, currency, dfs, news_list=news, holding_status=holding_status, avg_price=avg_price, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
     gem_multi_p = generate_multi_timeframe_gemini_prompt(code, name, market, currency, dfs, news_list=news, holding_status=holding_status, avg_price=avg_price, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
+    cld_multi_p = generate_multi_timeframe_claude_prompt(code, name, market, currency, dfs, news_list=news, holding_status=holding_status, avg_price=avg_price, start_dt_str=start_dt_str, end_dt_str=end_dt_str)
 
     if gemini_api_key:
         if st.button("🤖 Gemini AI 자동 분석 시작 (Multi-Timeframe)", key=f"btn_gemini_multi_{prefix}_{code}"):
@@ -793,15 +803,18 @@ def render_multi_ai_content(code, name, market, currency, dfs, news):
 
     st.divider()
     st.subheader("📋 수동 종합 분석용 프롬프트 (Backup)")
-    render_copy_buttons(gpt_multi_p, gem_multi_p, f"multi_{code}")
+    render_copy_buttons(gpt_multi_p, gem_multi_p, f"multi_{code}", claude_prompt=cld_multi_p)
     st.info("아래 코드를 복사하여 AI 서비스에 직접 붙여넣으셔도 됩니다.")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🟢 ChatGPT Plus 용")
         st.code(gpt_multi_p, language=None)
     with c2:
         st.markdown("### 🔵 Gemini (Google One) 용")
         st.code(gem_multi_p, language=None)
+    with c3:
+        st.markdown("### 🟠 Claude (Opus) 용")
+        st.code(cld_multi_p, language=None)
 
 
 def run_analysis_and_prompts(df, ticker, name, market, currency, interval_label, ranks=None, key_suffix="", selected_data=None):
