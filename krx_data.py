@@ -381,7 +381,7 @@ def _get_top_tickers_from_naver() -> dict[str, dict]:
     return tickers
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def get_krx_ranking() -> pd.DataFrame:
     """네이버 증권 시세 페이지에서 거래량/거래대금 상위 100~200 종목을 반환합니다.
 
@@ -482,7 +482,7 @@ _NXT_HEADERS = {
 }
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def get_nxt_ranking(rows: int = 50) -> pd.DataFrame:
     """넥스트레이드(NXT) API에서 거래량/거래대금 상위 종목을 가져옵니다.
 

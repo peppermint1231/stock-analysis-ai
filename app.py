@@ -21,6 +21,8 @@ import yfinance as yf
 from bs4 import BeautifulSoup
 from streamlit_local_storage import LocalStorage
 
+from streamlit_autorefresh import st_autorefresh
+
 from ai_client import get_gemini_response
 from date_fragment import date_selector_fragment
 from kis_ws import get_kis_client, get_kis_config
@@ -444,9 +446,15 @@ def _render_sidebar() -> None:
 _render_sidebar()
 
 # ─── Title & Tabs ─────────────────────────────────────────────────────────────
-_APP_VERSION = "v3.0"
+_APP_VERSION = "v3.1"
 
 _CHANGELOG = {
+    "v3.1": [
+        "KRX/NXT 랭킹 테이블 실시간 자동 새로고침 (30초 간격 토글)",
+        "US 시장 현황 실시간 자동 새로고침 (30초 간격 토글)",
+        "개별 분석 페이지 KRX+NXT 현황 실시간 자동 갱신 (15초 간격 토글)",
+        "랭킹 데이터 캐시 TTL 30초로 단축 (기존 5~10분)",
+    ],
     "v3.0": [
         "NXT 전 종목 5분봉 스냅샷 → Google Sheets 자동 저장 (28일 보관)",
         "과거 NXT 장외시간 데이터를 KRX+NXT 분석에 자동 보충",
@@ -1278,7 +1286,11 @@ def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
                 st.session_state["krx_market_loaded"] = True
                 st.rerun(fragment=True)
         else:
-            krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
+            auto_on = st.toggle("🔄 자동 새로고침 (30초)", key="krx_auto_refresh", value=False)
+            if auto_on:
+                st_autorefresh(interval=30_000, limit=None, key="krx_rank_refresh")
+            krx_time_str = now_kst().strftime("%m/%d %H:%M")
+            st.session_state["krx_time"] = krx_time_str
             st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
             try:
                 render_krx_ranking(today_str, krx_time_str, name_to_ticker_map, NUMERIC_COLS, DISPLAY_COLS)
@@ -1293,7 +1305,11 @@ def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
                 st.session_state["krx_nxt_market_loaded"] = True
                 st.rerun(fragment=True)
         else:
-            krx_time_str = st.session_state.get("krx_time", now_kst().strftime("%m/%d %H:%M"))
+            auto_on_nxt = st.toggle("🔄 자동 새로고침 (30초)", key="nxt_auto_refresh", value=False)
+            if auto_on_nxt:
+                st_autorefresh(interval=30_000, limit=None, key="nxt_rank_refresh")
+            krx_time_str = now_kst().strftime("%m/%d %H:%M")
+            st.session_state["krx_time"] = krx_time_str
             try:
                 render_krx_nxt_ranking(today_str, krx_time_str, name_to_ticker_map)
             except Exception as e:
@@ -1528,7 +1544,14 @@ def _render_us_market_tab() -> None:
             st.rerun(fragment=True)
         return
 
-    us_time_str = st.session_state.get("us_time", now_kst().strftime("%m/%d %H:%M"))
+    auto_on_us = st.toggle("🔄 자동 새로고침 (30초)", key="us_auto_refresh", value=False)
+    if auto_on_us:
+        st_autorefresh(interval=30_000, limit=None, key="us_rank_refresh")
+        # 자동 갱신 시 캐시된 데이터 삭제하여 새로 가져오기
+        st.session_state.pop("us_top_df", None)
+
+    us_time_str = now_kst().strftime("%m/%d %H:%M")
+    st.session_state["us_time"] = us_time_str
     st.subheader(f"🔥 거래량 상위 Top 10 (Most Active) ({us_time_str})")
 
     if "us_top_df" not in st.session_state:
