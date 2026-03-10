@@ -106,12 +106,18 @@ st.markdown(
             height: 0 !important;
             overflow: hidden !important;
         }
-        /* Sidebar open button (hamburger) */
-        [data-testid="stSidebarCollapsedControl"] button {
+        /* Sidebar open button (hamburger) — try multiple selectors */
+        [data-testid="collapsedControl"] button,
+        [data-testid="stSidebarCollapsedControl"] button,
+        [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapsedControl"] {
             min-width: 2.5rem !important;
             min-height: 2.5rem !important;
         }
-        [data-testid="stSidebarCollapsedControl"] button::before {
+        [data-testid="collapsedControl"] button::before,
+        [data-testid="stSidebarCollapsedControl"] button::before,
+        [data-testid="collapsedControl"]::before,
+        [data-testid="stSidebarCollapsedControl"]::before {
             content: "☰";
             font-size: 1.3rem;
             font-family: system-ui, -apple-system, sans-serif !important;
