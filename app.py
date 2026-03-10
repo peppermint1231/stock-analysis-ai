@@ -295,14 +295,15 @@ def get_kospi_night_futures() -> dict | None:
                 # 11월 첫째 일요일
                 nov1 = _dt(year, 11, 1, tzinfo=_tz.utc)
                 dst_end = nov1 + _td(days=(6 - nov1.weekday()) % 7)
-                ct_offset = _td(hours=-5) if dst_start <= utc_dt.replace(hour=2) < dst_end else _td(hours=-6)
-                ct_dt = utc_dt.astimezone(_tz(ct_offset))
+                ct_hours = -5 if dst_start <= utc_dt.replace(hour=2) < dst_end else -6
+                ct_dt = utc_dt.astimezone(_tz(_td(hours=ct_hours)))
                 kst_str = kst_dt.strftime("%m/%d %H:%M:%S")
                 ct_str = ct_dt.strftime("%m/%d %H:%M:%S")
+                ct_utc_label = f"UTC{ct_hours}"
             except Exception:
                 pass
 
-        return {"price": price, "diff": diff, "pct": pct, "kst_time": kst_str, "ct_time": ct_str}
+        return {"price": price, "diff": diff, "pct": pct, "kst_time": kst_str, "ct_time": ct_str, "ct_utc": ct_utc_label if tstamp else ""}
 
     except Exception:
         return None
@@ -379,13 +380,13 @@ def _render_sidebar() -> None:
     if night:
         kst_t = night.get("kst_time", "")
         ct_t = night.get("ct_time", "")
-        time_parts = []
+        ct_utc = night.get("ct_utc", "UTC-6")
+        lines = []
         if kst_t:
-            time_parts.append(f"KST {kst_t}")
+            lines.append(f"기준(KST) {kst_t} (UTC+9)")
         if ct_t:
-            time_parts.append(f"CT {ct_t}")
-        time_lbl = f"(기준: {' / '.join(time_parts)})" if time_parts else ""
-        st.sidebar.caption(time_lbl)
+            lines.append(f"기준(CT) {ct_t} ({ct_utc})")
+        st.sidebar.caption("\n".join(lines) if lines else "")
         pct_sign = "+" if night["pct"] >= 0 else ""
         diff_sign = "+" if night["diff"] >= 0 else ""
         st.sidebar.metric(
