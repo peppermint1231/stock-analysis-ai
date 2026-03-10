@@ -571,9 +571,13 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        kis_trade_time = nav.get("trade_time", "")
-        kis_trade_label = f"체결 {kis_trade_time} · " if kis_trade_time else ""
-        st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · {kis_trade_label}조회 {kis_fetch_time})")
+        # 장중(09:00~15:30)이면 "실시간 · 조회 HH:MM:SS", 장외면 "종가 · 조회 HH:MM:SS"
+        _now_kst = datetime.now(_kst)
+        _market_open = _now_kst.hour > 9 or (_now_kst.hour == 9 and _now_kst.minute >= 0)
+        _market_close = _now_kst.hour > 15 or (_now_kst.hour == 15 and _now_kst.minute >= 30)
+        _is_market_hours = _market_open and not _market_close
+        kis_status = "실시간 무지연" if _is_market_hours else "종가"
+        st.markdown(f"**📡 한국투자증권 Open API {kis_status}** (KRX 기준 · 조회 {kis_fetch_time})")
         sq = "+" if nav["rate"] > 0 else ""
         col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
         st.markdown(

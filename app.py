@@ -166,7 +166,7 @@ st.markdown(
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=120)
 def get_major_indices() -> dict:
     indices = {
         "🇺🇸 S&P 500": "^GSPC",
@@ -184,40 +184,46 @@ def get_major_indices() -> dict:
     }
 
     results: dict = {"indices": {}, "commodities": {}}
+
+    def _parse(closes, ticker: str):
+        s = closes[ticker] if isinstance(closes, pd.DataFrame) and ticker in closes.columns else closes
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        s = s.dropna()
+        if len(s) >= 2:
+            val = float(s.iloc[-1])
+            diff = float(s.iloc[-1] - s.iloc[-2])
+            pct = diff / float(s.iloc[-2]) * 100
+            return val, diff, pct
+        return None
+
+    # 지수 다운로드 (별도)
     try:
-        all_tickers = list(indices.values()) + [v[0] for v in commodities.values()]
-        df = yf.download(all_tickers, period="5d", progress=False)
-        if df.empty or "Close" not in df.columns:
-            return results
-
-        closes = df["Close"]
-
-        def _get(ticker: str):
-            s = closes[ticker] if isinstance(closes, pd.DataFrame) and ticker in closes.columns else closes
-            if isinstance(s, pd.DataFrame):
-                s = s.iloc[:, 0]
-            s = s.dropna()
-            if len(s) >= 2:
-                val = float(s.iloc[-1])
-                diff = float(s.iloc[-1] - s.iloc[-2])
-                pct = diff / float(s.iloc[-2]) * 100
-                return val, diff, pct
-            return None
-
-        for name, ticker in indices.items():
-            data = _get(ticker)
-            if data:
-                results["indices"][name] = data
-
-        krw_data = _get("KRW=X")
-        krw_rate = krw_data[0] if krw_data else 1350.0
-        for name, (ticker, unit) in commodities.items():
-            data = _get(ticker)
-            if data:
-                usd, diff, pct = data
-                results["commodities"][name] = (usd, diff, pct, usd * krw_rate, unit)
+        idx_tickers = list(indices.values())
+        df_idx = yf.download(idx_tickers, period="5d", progress=False)
+        if not df_idx.empty and "Close" in df_idx.columns:
+            for name, ticker in indices.items():
+                data = _parse(df_idx["Close"], ticker)
+                if data:
+                    results["indices"][name] = data
     except Exception:
         pass
+
+    # 원자재/코인 다운로드 (별도 — 하나 실패해도 지수는 표시)
+    try:
+        cmd_tickers = [v[0] for v in commodities.values()]
+        df_cmd = yf.download(cmd_tickers, period="5d", progress=False)
+        if not df_cmd.empty and "Close" in df_cmd.columns:
+            krw_data = results["indices"].get("💵 USD/KRW")
+            krw_rate = krw_data[0] if krw_data else 1350.0
+            for name, (ticker, unit) in commodities.items():
+                data = _parse(df_cmd["Close"], ticker)
+                if data:
+                    usd, diff, pct = data
+                    results["commodities"][name] = (usd, diff, pct, usd * krw_rate, unit)
+    except Exception:
+        pass
+
     return results
 
 
