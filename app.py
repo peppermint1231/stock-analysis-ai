@@ -1024,7 +1024,9 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 
 @st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
 def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: str = "",
-                                   nxt_price: float = 0.0, nxt_vol: float = 0.0):
+                                   nxt_price: float = 0.0, nxt_vol: float = 0.0,
+                                   nxt_open: float = 0.0, nxt_high: float = 0.0,
+                                   nxt_low: float = 0.0, nxt_time: str = ""):
     """각 분봉별로 yfinance에서 최대 기간 데이터를 직접 수집하고, 당일은 KIS 1분봉으로 보강합니다."""
     import yfinance as yf
     from kis_api import _fetch_kis_today_minutes
@@ -1079,27 +1081,34 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         return merged
 
     def _apply_nxt(df: pd.DataFrame) -> pd.DataFrame:
-        """NXT 가격/볼륨을 마지막 캔들에 반영합니다."""
+        """KRX 장외시간에 NXT 데이터를 별도 캔들로 추가합니다."""
         if df.empty or nxt_price <= 0:
             return df
         last = df.index[-1]
         after_hours = kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30)
         if after_hours:
-            # 장 마감 후: 새 캔들 추가
-            current_minute = kst_now.replace(second=0, microsecond=0)
-            if current_minute > last:
-                new_row = pd.DataFrame({
-                    "Open": [nxt_price], "High": [nxt_price], "Low": [nxt_price],
-                    "Close": [nxt_price], "Volume": [nxt_vol],
-                }, index=[current_minute])
-                df = pd.concat([df, new_row])
-                return df
-        # 장중 또는 같은 캔들 갱신
-        df.at[last, "Close"] = nxt_price
-        df.at[last, "High"] = max(float(df.at[last, "High"]), nxt_price)
-        df.at[last, "Low"] = min(float(df.at[last, "Low"]), nxt_price)
-        if nxt_vol > 0:
-            df.at[last, "Volume"] = float(df.at[last, "Volume"]) + nxt_vol
+            # 장 마감 후: NXT OHLCV를 별도 캔들로 추가
+            # NXT 시간 파싱 (예: "1243" → 12:43)
+            nxt_ts = kst_now.replace(second=0, microsecond=0)
+            if nxt_time and len(nxt_time) >= 4:
+                try:
+                    nxt_ts = kst_now.replace(hour=int(nxt_time[:2]), minute=int(nxt_time[2:4]), second=0, microsecond=0)
+                except (ValueError, IndexError):
+                    pass
+            if nxt_ts <= last:
+                nxt_ts = last + timedelta(minutes=1)
+            new_row = pd.DataFrame({
+                "Open": [nxt_open if nxt_open > 0 else nxt_price],
+                "High": [nxt_high if nxt_high > 0 else nxt_price],
+                "Low": [nxt_low if nxt_low > 0 else nxt_price],
+                "Close": [nxt_price],
+                "Volume": [nxt_vol],
+            }, index=[nxt_ts])
+            df = pd.concat([df, new_row])
+        else:
+            # 장중: NXT 거래량만 마지막 캔들에 합산
+            if nxt_vol > 0:
+                df.at[last, "Volume"] = float(df.at[last, "Volume"]) + nxt_vol
         return df
 
     # 각 분봉별 기간: 60분=4주, 30분=2주, 15분=1주, 5분=3일, 1분=1일
@@ -1273,11 +1282,20 @@ with tab_kr_indie:
                 # NXT 데이터 조회 (KRX+NXT 통합 분석일 때만)
                 nxt_vol = 0.0
                 nxt_price = 0.0
+                nxt_open = 0.0
+                nxt_high = 0.0
+                nxt_low = 0.0
+                nxt_time = ""
                 if run_nxt:
                     nxt_df = get_nxt_ranking(rows=200)
                     if not nxt_df.empty and kr_code in nxt_df.index:
-                        nxt_vol = float(nxt_df.loc[kr_code, "NXT거래량"])
-                        nxt_price = float(nxt_df.loc[kr_code, "현재가"])
+                        nxt_row = nxt_df.loc[kr_code]
+                        nxt_vol = float(nxt_row.get("NXT거래량", 0))
+                        nxt_price = float(nxt_row.get("현재가", 0))
+                        nxt_open = float(nxt_row.get("NXT시가", 0))
+                        nxt_high = float(nxt_row.get("NXT고가", 0))
+                        nxt_low = float(nxt_row.get("NXT저가", 0))
+                        nxt_time = str(nxt_row.get("NXT시간", ""))
 
                 # 최종 반영할 가격 결정 (NXT > KIS 우선순위)
                 live_price = nxt_price if nxt_price > 0 else rt_price
@@ -1342,10 +1360,14 @@ with tab_kr_indie:
                     render_stock_nxt_card(kr_code, selected_name)
 
                 _today_cache = datetime.now(tz=timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H")
-                _nxt_p = nxt_price if run_nxt else 0.0
-                _nxt_v = nxt_vol if run_nxt else 0.0
                 df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(
-                    kr_code, df_kr, _cache_date=_today_cache, nxt_price=_nxt_p, nxt_vol=_nxt_v)
+                    kr_code, df_kr, _cache_date=_today_cache,
+                    nxt_price=nxt_price if run_nxt else 0.0,
+                    nxt_vol=nxt_vol if run_nxt else 0.0,
+                    nxt_open=nxt_open if run_nxt else 0.0,
+                    nxt_high=nxt_high if run_nxt else 0.0,
+                    nxt_low=nxt_low if run_nxt else 0.0,
+                    nxt_time=nxt_time if run_nxt else "")
                 t1, t2, t3, t4, t5, t6 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 30분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
                     render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "30min": df_30, "15min": df_15, "5min": df_5, "1min": df_1}, [])

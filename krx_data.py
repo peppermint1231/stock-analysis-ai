@@ -536,6 +536,10 @@ def get_nxt_ranking(rows: int = 50) -> pd.DataFrame:
                 "등락률": _f(item.get("upDownRate")),
                 "NXT거래량": _f(item.get("accTdQty")),
                 "NXT거래대금": _f(item.get("accTrval")),
+                "NXT시가": _f(item.get("oppr")),
+                "NXT고가": _f(item.get("hgpr")),
+                "NXT저가": _f(item.get("lwpr")),
+                "NXT시간": str(item.get("nowTime", "")).strip(),
             })
 
         if not records:
