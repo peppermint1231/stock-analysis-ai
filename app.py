@@ -67,35 +67,50 @@ st.markdown(
     <style>
     /* ── Mobile-first responsive styles ─────────────────────────────────── */
     @media (max-width: 768px) {
-        /* Layout & spacing */
-        .block-container { padding-top: 1rem; padding-left: 0.5rem; padding-right: 0.5rem; }
-        section[data-testid="stSidebar"] { width: 260px !important; }
-        section[data-testid="stSidebar"] .block-container { padding: 0.5rem 0.8rem; }
+        /* Layout & spacing — tighter */
+        .block-container { padding-top: 0.5rem; padding-left: 0.4rem; padding-right: 0.4rem; }
 
-        /* Typography */
-        h1 { font-size: 1.4rem !important; line-height: 1.3 !important; }
-        h2 { font-size: 1.2rem !important; }
-        h3 { font-size: 1.05rem !important; }
+        /* Reduce default vertical gaps between Streamlit elements */
+        div[data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
 
-        /* Metrics — compact on small screens */
-        div[data-testid="stMetricValue"] { font-size: 1rem !important; }
-        div[data-testid="stMetricLabel"] { font-size: 0.75rem !important; word-wrap: break-word; white-space: normal !important; }
-        div[data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
+        /* Sidebar — responsive width */
+        section[data-testid="stSidebar"] { width: 85vw !important; max-width: 300px !important; }
+        section[data-testid="stSidebar"] .block-container { padding: 0.3rem 0.6rem; }
+        section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.25rem !important; }
+        section[data-testid="stSidebar"] div[data-testid="stMetricValue"] { font-size: 0.95rem !important; }
+        section[data-testid="stSidebar"] div[data-testid="stMetricDelta"] { font-size: 0.7rem !important; }
+        section[data-testid="stSidebar"] h3 { font-size: 0.9rem !important; margin: 0 !important; }
+        section[data-testid="stSidebar"] .stMarkdown p { font-size: 0.8rem !important; }
 
-        /* DataFrames */
+        /* Typography — compact */
+        h1 { font-size: 1.3rem !important; line-height: 1.2 !important; margin-bottom: 0.2rem !important; }
+        h2 { font-size: 1.1rem !important; margin-bottom: 0.2rem !important; }
+        h3 { font-size: 1rem !important; margin-bottom: 0.15rem !important; }
+
+        /* Dividers — less vertical space */
+        hr { margin: 0.3rem 0 !important; }
+
+        /* Metrics — compact */
+        div[data-testid="stMetricValue"] { font-size: 0.95rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.7rem !important; word-wrap: break-word; white-space: normal !important; }
+        div[data-testid="stMetricDelta"] { font-size: 0.7rem !important; }
+        div[data-testid="metric-container"] { padding: 0 !important; gap: 0 !important; }
+
+        /* DataFrames — scrollable */
         div[data-testid="stDataFrame"] { font-size: 0.8rem !important; overflow-x: auto !important; }
         div[data-testid="stDataFrame"] table { min-width: 500px; }
 
-        /* Expander */
+        /* Expander — compact */
         div[data-testid="stExpander"] details summary p { font-size: 0.85rem !important; }
+        div[data-testid="stExpander"] details { padding: 0.3rem !important; }
 
-        /* Pills — wrap & shrink */
+        /* Pills — horizontal scroll, adequate touch target */
         div[data-testid="stPills"] { overflow-x: auto !important; flex-wrap: nowrap !important; }
-        div[data-testid="stPills"] button { padding: 0.25rem 0.5rem !important; font-size: 0.75rem !important; white-space: nowrap; }
+        div[data-testid="stPills"] button { padding: 0.3rem 0.6rem !important; font-size: 0.78rem !important; white-space: nowrap; min-height: 36px; }
 
-        /* Buttons — full width on mobile, prevent icon text overflow */
-        .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Buttons — full width, adequate touch target */
+        .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* Material Symbols — hide icon NAME text, show SVG icon instead */
         span.material-symbols-rounded,
@@ -109,31 +124,28 @@ st.markdown(
             background-size: contain !important;
             background-repeat: no-repeat !important;
             background-position: center !important;
-            /* Default: 3-line hamburger menu SVG */
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z'/%3E%3C/svg%3E") !important;
         }
-        /* Close button inside sidebar — show X icon */
         [data-testid="stSidebarCollapseButton"] span.material-symbols-rounded,
         [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M18.3 5.7a1 1 0 00-1.4 0L12 10.6 7.1 5.7a1 1 0 00-1.4 1.4L10.6 12l-4.9 4.9a1 1 0 101.4 1.4L12 13.4l4.9 4.9a1 1 0 001.4-1.4L13.4 12l4.9-4.9a1 1 0 000-1.4z'/%3E%3C/svg%3E") !important;
         }
-        /* Expander arrow — show chevron down */
         div[data-testid="stExpander"] span.material-symbols-rounded {
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M7.4 8.6L12 13.2l4.6-4.6L18 10l-6 6-6-6z'/%3E%3C/svg%3E") !important;
         }
 
-        /* Inputs */
+        /* Inputs — full width */
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
         .stTextInput>div[data-baseweb="input"] { width: 100%; }
         .stNumberInput>div { width: 100%; }
 
-        /* Tabs — horizontal scroll instead of wrapping */
+        /* Tabs — horizontal scroll, compact */
         div[data-testid="stTabs"] [role="tablist"] { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap !important; gap: 0 !important; }
         div[data-testid="stTabs"] button[role="tab"] { padding: 0.3rem 0.5rem !important; font-size: 0.75rem !important; white-space: nowrap; flex-shrink: 0; }
 
-        /* Columns — stack vertically on narrow screens */
-        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.3rem !important; }
-        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 100% !important; flex-basis: 100% !important; }
+        /* Columns — smart wrapping: metric columns stay inline, wide ones stack */
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.2rem !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { min-width: 80px !important; }
 
         /* Plotly toolbar hidden on mobile */
         .modebar-container { display: none !important; }
@@ -142,10 +154,22 @@ st.markdown(
         .stCode, pre { font-size: 0.75rem !important; overflow-x: auto !important; }
 
         /* Markdown text */
-        .stMarkdown p { font-size: 0.9rem !important; }
+        .stMarkdown p { font-size: 0.88rem !important; }
 
         /* Slider — larger touch target */
         div[data-testid="stSlider"] { padding: 0.3rem 0 !important; }
+
+        /* Captions — compact */
+        .stCaption, div[data-testid="stCaptionContainer"] { font-size: 0.7rem !important; }
+
+        /* Alert/info/warning boxes — compact */
+        div[data-testid="stAlert"] { padding: 0.4rem 0.6rem !important; font-size: 0.8rem !important; }
+
+        /* Progress bar text */
+        div[data-testid="stProgressBar"] p { font-size: 0.75rem !important; }
+
+        /* Checkbox/Toggle — adequate touch target */
+        .stCheckbox label { min-height: 36px; display: flex; align-items: center; }
     }
 
     /* ── Material Symbols icon fix — desktop/tablet only ─────────────── */
