@@ -571,7 +571,9 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · 조회 {kis_fetch_time})")
+        kis_trade_time = nav.get("trade_time", "")
+        kis_trade_label = f"체결 {kis_trade_time} · " if kis_trade_time else ""
+        st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · {kis_trade_label}조회 {kis_fetch_time})")
         sq = "+" if nav["rate"] > 0 else ""
         col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
         st.markdown(

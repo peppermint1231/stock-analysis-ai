@@ -76,6 +76,11 @@ def get_current_price(code: str) -> dict | None:
         data = res.json()
         if data.get("rt_cd") == "0":
             out = data.get("output", {})
+            # 체결시간 파싱 (HHMMSScc → HH:MM:SS)
+            raw_hour = str(out.get("stck_cntg_hour", "")).strip()
+            trade_time = ""
+            if len(raw_hour) >= 6:
+                trade_time = f"{raw_hour[:2]}:{raw_hour[2:4]}:{raw_hour[4:6]}"
             return {
                 "price": float(out.get("stck_prpr", 0)),
                 "diff": float(out.get("prdy_vrss", 0)),
@@ -85,6 +90,7 @@ def get_current_price(code: str) -> dict | None:
                 "open": float(out.get("stck_oprc", 0)),
                 "high": float(out.get("stck_hgpr", 0)),
                 "low": float(out.get("stck_lwpr", 0)),
+                "trade_time": trade_time,
                 "ok": True,
             }
     except Exception as e:
