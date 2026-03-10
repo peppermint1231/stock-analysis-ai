@@ -1354,10 +1354,11 @@ with tab_kr_indie:
             elif interval_kr_sel == "시간/분봉 종합분석":
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' 인트라데이 종합구간(60분/30분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
-                st.caption("✅ 과거 분봉: yfinance (최대 60일) / 당일 실시간: KIS Open API (무지연)")
-                
                 if st.session_state.get("run_krx_nxt"):
+                    st.caption("✅ 과거 분봉: yfinance / 당일 실시간: KIS Open API (무지연) / NXT: 장외시간 당일만 반영")
                     render_stock_nxt_card(kr_code, selected_name)
+                else:
+                    st.caption("✅ 과거 분봉: yfinance / 당일 실시간: KIS Open API (무지연)")
 
                 _today_cache = datetime.now(tz=timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H")
                 df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(
