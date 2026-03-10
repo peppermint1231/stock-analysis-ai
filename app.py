@@ -1024,43 +1024,62 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 
 @st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
 def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
-    df_1m = df_1m.sort_index()
+    """각 분봉별로 yfinance에서 최대 기간 데이터를 직접 수집하고, 당일은 KIS 1분봉으로 보강합니다."""
+    import yfinance as yf
+    from kis_api import _fetch_kis_today_minutes
 
-    def _resample_and_append_close(df, freq):
-        resampled = resample_ohlcv(df, freq)
-        
-        # 30분, 60분 등의 큰 분봉 리샘플링 시 한국장 마감(15:30) 가격이 제대로 마지막 캔들로 남지 않을 수 있으므로
-        # 각 날짜별 15:30 (또는 장 마감 시간) 캔들을 강제로 추가/보정해줍니다.
+    kst_now = datetime.now(tz=timezone(timedelta(hours=9))).replace(tzinfo=None)
+    today_str = kst_now.strftime("%Y-%m-%d")
+    kis_today = _fetch_kis_today_minutes(code)
+
+    # yfinance 티커 결정 (KOSPI .KS / KOSDAQ .KQ)
+    ticker_yf = f"{code}.KS"
+    try:
+        _test = yf.Ticker(ticker_yf).history(period="1d", interval="1d")
+        if _test.empty:
+            ticker_yf = f"{code}.KQ"
+    except Exception:
+        ticker_yf = f"{code}.KQ"
+
+    def _fetch_yf_intraday(interval: str, period: str) -> pd.DataFrame:
+        """yfinance에서 특정 분봉 데이터를 가져오고 당일 KIS 데이터로 보강합니다."""
         try:
-            dates = pd.Series(df.index.date).unique()
-            for d in dates:
-                day_df = df[df.index.date == d]
-                if not day_df.empty:
-                    last_time = day_df.index[-1]
-                    # 장 마감 시간대(15:30)의 가격 정보가 원본에 있다면
-                    if last_time.hour >= 15 and last_time.minute >= 30:
-                        close_time = datetime.combine(d, dt_time(15, 30))
-                        if close_time not in resampled.index and last_time >= close_time:
-                            last_row = day_df.loc[last_time]
-                            new_row = pd.DataFrame({
-                                "Open": [last_row["Close"]], 
-                                "High": [last_row["Close"]], 
-                                "Low": [last_row["Close"]],
-                                "Close": [last_row["Close"]], 
-                                "Volume": [0]
-                            }, index=[close_time])
-                            resampled = pd.concat([resampled, new_row])
-            resampled = resampled.sort_index()
-        except Exception as e:
-            print(f"Error appending close bar in resampling {freq}: {e}")
-            
-        return calculate_indicators(resampled)
+            yf_df = yf.Ticker(ticker_yf).history(period=period, interval=interval)
+        except Exception:
+            yf_df = pd.DataFrame()
 
-    df_60 = _resample_and_append_close(df_1m, "60min")
-    df_30 = _resample_and_append_close(df_1m, "30min")
-    df_15 = _resample_and_append_close(df_1m, "15min")
-    df_5 = _resample_and_append_close(df_1m, "5min")
-    df_1 = calculate_indicators(df_1m)
+        if not yf_df.empty:
+            if yf_df.index.tz is not None:
+                yf_df.index = yf_df.index.tz_convert("Asia/Seoul").tz_localize(None)
+            yf_df = yf_df[["Open", "High", "Low", "Close", "Volume"]]
+            # 당일 yfinance 데이터 제거 (15~20분 지연이 있으므로 KIS로 대체)
+            yf_past = yf_df[yf_df.index.normalize() < pd.Timestamp(today_str)]
+        else:
+            yf_past = pd.DataFrame()
+
+        # 당일 데이터: KIS 1분봉을 해당 간격으로 리샘플링
+        if not kis_today.empty:
+            kis_resampled = resample_ohlcv(kis_today, interval) if interval != "1m" else kis_today.copy()
+        else:
+            kis_resampled = pd.DataFrame()
+
+        parts = [df for df in [yf_past, kis_resampled] if not df.empty]
+        if not parts:
+            return pd.DataFrame()
+        merged = pd.concat(parts).sort_index()
+        merged = merged[~merged.index.duplicated(keep="last")]
+        return merged
+
+    # 각 분봉별로 yfinance 최대 기간 데이터 수집
+    # yfinance 한도: 1m=7d, 5m/15m/30m/60m=60d
+    df_60 = calculate_indicators(_fetch_yf_intraday("60m", "60d"))
+    df_30 = calculate_indicators(_fetch_yf_intraday("30m", "60d"))
+    df_15 = calculate_indicators(_fetch_yf_intraday("15m", "60d"))
+    df_5 = calculate_indicators(_fetch_yf_intraday("5m", "60d"))
+
+    # 1분봉: df_1m (이미 yfinance+KIS 합쳐진 데이터)
+    df_1 = calculate_indicators(df_1m.sort_index())
+
     return df_60, df_30, df_15, df_5, df_1
 
 
@@ -1284,8 +1303,8 @@ with tab_kr_indie:
                     run_analysis_and_prompts(df_y, kr_code, selected_name, market_name, "KRW", "연봉", key_suffix="kr_y", selected_data=extra_data_sel)
             elif interval_kr_sel == "시간/분봉 종합분석":
                 elapsed = time.time() - t0
-                st.success(f"'{selected_name}' 인트라데이 종합구간(60분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
-                st.caption("✅ 한국투자증권 Open API를 통한 실시간 무지연 데이터입니다.")
+                st.success(f"'{selected_name}' 인트라데이 종합구간(60분/30분/15분/5분/1분) 입체 분석 (⏱️ {elapsed:.2f}초)")
+                st.caption("✅ 과거 분봉: yfinance (최대 60일) / 당일 실시간: KIS Open API (무지연)")
                 
                 if st.session_state.get("run_krx_nxt"):
                     render_stock_nxt_card(kr_code, selected_name)

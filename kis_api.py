@@ -94,28 +94,22 @@ def get_current_price(code: str) -> dict | None:
 
 # ─── 분봉 이력 ─────────────────────────────────────────────────────────────────
 
-def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
-    """당일 및 과거 분봉 데이터를 조회합니다 (최대 target_days 영업일 분량).
-
-    KIS API는 1회 요청당 약 30개 레코드를 반환하므로 페이지네이션으로 수집합니다.
-    FID_PW_DATA_INCU_YN=Y 로 과거 날짜 데이터도 포함합니다.
-    """
+def _fetch_kis_today_minutes(code: str) -> pd.DataFrame:
+    """KIS API로 당일 1분봉 데이터를 조회합니다 (실시간, 지연 없음)."""
     url = f"{DOMAIN}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
     headers = _base_headers("FHKST03010200")
 
     all_records: list = []
     last_time = "153000"
-    seen_keys: set = set()  # (date, time) 중복 방지
-    cutoff_date = (datetime.now(tz=_KST) - timedelta(days=target_days + 4)).strftime("%Y%m%d")
-    stale_count = 0  # 새 레코드가 없는 연속 횟수
+    seen_keys: set = set()
 
-    for _ in range(200):  # 최대 200회 = ~6,000개 레코드 (~15일치 1분봉)
+    for _ in range(100):
         params = {
             "FID_ETC_CLS_CODE": "",
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": code,
             "FID_INPUT_HOUR_1": last_time,
-            "FID_PW_DATA_INCU_YN": "Y",
+            "FID_PW_DATA_INCU_YN": "N",
         }
         try:
             res = requests.get(url, headers=headers, params=params, timeout=5)
@@ -134,23 +128,12 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
                     seen_keys.add(key)
                     all_records.append(r)
                     new_count += 1
-
             if new_count == 0:
-                stale_count += 1
-                if stale_count >= 3:
-                    break
-            else:
-                stale_count = 0
-
-            # 날짜 기준 종료 체크
-            oldest_date = min(r.get("stck_bsop_date", "99999999") for r in records)
-            if oldest_date <= cutoff_date:
                 break
 
             last_time = records[-1].get("stck_cntg_hour", "090000")
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"[KIS] fetch_intraday_history 페이지네이션 실패: {e}")
+            time.sleep(0.08)
+        except Exception:
             break
 
     if not all_records:
@@ -158,16 +141,61 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
 
     df = pd.DataFrame(all_records).drop_duplicates(subset=["stck_bsop_date", "stck_cntg_hour"])
     df["Datetime"] = pd.to_datetime(df["stck_bsop_date"] + df["stck_cntg_hour"])
-    df = df.rename(columns={"stck_oprc": "Open", "stck_hgpr": "High", "stck_lwpr": "Low", "stck_prpr": "Close", "cntg_vol": "Volume"})
+    df = df.rename(columns={
+        "stck_oprc": "Open", "stck_hgpr": "High",
+        "stck_lwpr": "Low", "stck_prpr": "Close", "cntg_vol": "Volume",
+    })
     df = df[["Datetime", "Open", "High", "Low", "Close", "Volume"]]
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         df[col] = df[col].astype(float)
-
     df = df.set_index("Datetime").sort_index()
 
-    # KIS API는 장중에 미래 더미 행(volume=0)을 포함하는 경우가 있으므로 현재 시각 이후 행을 제거합니다.
     kst_now = datetime.now(tz=_KST).replace(tzinfo=None)
     return df[df.index <= kst_now]
+
+
+def fetch_intraday_history(code: str, target_days: int = 7) -> pd.DataFrame:
+    """yfinance로 과거 분봉 + KIS API로 당일 실시간 분봉을 합쳐 반환합니다.
+
+    yfinance 1분봉은 ~15분 지연이 있으므로, 당일 데이터는 KIS 실시간으로 교체합니다.
+    """
+    import yfinance as yf
+
+    kst_now = datetime.now(tz=_KST).replace(tzinfo=None)
+    today_str = kst_now.strftime("%Y-%m-%d")
+
+    # 1) yfinance에서 과거 분봉 수집 (1분봉, 최대 7일)
+    try:
+        ticker_yf = f"{code}.KS"
+        yf_df = yf.Ticker(ticker_yf).history(period=f"{target_days}d", interval="1m")
+        if yf_df.empty:
+            # KOSDAQ 시도
+            ticker_yf = f"{code}.KQ"
+            yf_df = yf.Ticker(ticker_yf).history(period=f"{target_days}d", interval="1m")
+    except Exception:
+        yf_df = pd.DataFrame()
+
+    if not yf_df.empty:
+        # timezone 제거 (KST → naive)
+        if yf_df.index.tz is not None:
+            yf_df.index = yf_df.index.tz_convert("Asia/Seoul").tz_localize(None)
+        yf_df = yf_df[["Open", "High", "Low", "Close", "Volume"]]
+        # 당일 yfinance 데이터 제거 (KIS 실시간으로 대체)
+        yf_past = yf_df[yf_df.index.normalize() < pd.Timestamp(today_str)]
+    else:
+        yf_past = pd.DataFrame()
+
+    # 2) KIS API로 당일 실시간 분봉 수집
+    kis_today = _fetch_kis_today_minutes(code)
+
+    # 3) 합치기: 과거(yfinance) + 당일(KIS)
+    parts = [df for df in [yf_past, kis_today] if not df.empty]
+    if not parts:
+        return pd.DataFrame()
+
+    merged = pd.concat(parts).sort_index()
+    merged = merged[~merged.index.duplicated(keep="last")]
+    return merged
 
 
 # ─── 일봉 이력 ─────────────────────────────────────────────────────────────────
