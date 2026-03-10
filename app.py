@@ -444,7 +444,65 @@ def _render_sidebar() -> None:
 _render_sidebar()
 
 # ─── Title & Tabs ─────────────────────────────────────────────────────────────
-st.title("📈 AI 주식 기술적 분석 (v3.0)")
+_APP_VERSION = "v3.0"
+
+_CHANGELOG = {
+    "v3.0": [
+        "NXT 전 종목 5분봉 스냅샷 → Google Sheets 자동 저장 (28일 보관)",
+        "과거 NXT 장외시간 데이터를 KRX+NXT 분석에 자동 보충",
+        "Claude (Opus) 전용 프롬프트 추가 (XML 태그, 시나리오 분석, 확신도)",
+        "수동 프롬프트 UI 3열 (ChatGPT / Gemini / Claude)",
+        "월봉 리샘플 미래 날짜(3/31) 버그 수정",
+    ],
+    "v2.3": [
+        "NXT 캔들을 장외시간 별도 바로 추가",
+        "NXT 시가/고가/저가/시간 데이터 확장",
+        "인트라데이 분봉 기간 조정 (60m=4주, 30m=2주, 15m=1주, 5m=3일, 1m=1일)",
+    ],
+    "v2.2": [
+        "하이브리드 인트라데이: yfinance 과거 + KIS 당일 실시간",
+        "yfinance interval → pandas freq 매핑 버그 수정",
+        "미래/장외 시간 데이터 필터링 강화",
+    ],
+    "v2.1": [
+        "실시간 현재가 반영 (KIS API) — 일봉 포함 모든 분석",
+        "eSignal socket.io 복원 (KOSPI 야간선물)",
+        "KOSPI200 yfinance 폴백",
+    ],
+    "v2.0": [
+        "모바일 반응형 CSS 최적화",
+        "Material Symbols 아이콘 오버플로 수정",
+        "DataFrame 숫자 포맷 에러 수정",
+    ],
+    "v1.0": [
+        "KRX/US 주식 기술적 분석 기본 기능",
+        "Gemini AI 자동 분석 리포트",
+        "ChatGPT/Gemini 수동 프롬프트 생성",
+        "멀티 타임프레임 (일/주/월/연봉) 통합 분석",
+    ],
+}
+
+_title_col, _ver_col = st.columns([8, 1])
+with _title_col:
+    st.title(f"📈 AI 주식 기술적 분석 ({_APP_VERSION})")
+with _ver_col:
+    st.write("")  # 세로 정렬 여백
+    if st.button("📋", key="btn_changelog", help="업데이트 내역 보기"):
+        st.session_state["show_changelog"] = True
+
+if st.session_state.get("show_changelog", False):
+    @st.dialog(f"업데이트 내역")
+    def _show_changelog():
+        for ver, changes in _CHANGELOG.items():
+            st.markdown(f"### {ver}")
+            for c in changes:
+                st.markdown(f"- {c}")
+            st.divider()
+        if st.button("닫기", key="btn_close_changelog", use_container_width=True):
+            st.session_state["show_changelog"] = False
+            st.rerun()
+    _show_changelog()
+
 tab_kr_indie, tab_us_indie, tab_kr_market, tab_us_market = st.tabs([
     "KR 국내 주식 개별 분석",
     "US 해외 주식 개별 분석",
