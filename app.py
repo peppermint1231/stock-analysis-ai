@@ -35,6 +35,14 @@ from prompts import (
 from us_data import fetch_us_data, get_sp500_mapping, get_us_most_active, prepare_us_ranking_df
 from utils import calculate_indicators, resample_ohlcv
 
+# ─── NXT 5분봉 백그라운드 저장 시작 ──────────────────────────────────────────
+try:
+    from krx_data import get_nxt_ranking as _nxt_fetch_for_store
+    from nxt_store import start_nxt_scheduler
+    start_nxt_scheduler(_nxt_fetch_for_store, interval_minutes=5)
+except Exception as _e:
+    print(f"[app] NXT 스케줄러 시작 실패: {_e}")
+
 # ─── Korean Standard Time ─────────────────────────────────────────────────────
 _KST = timezone(timedelta(hours=9))
 
@@ -1081,14 +1089,47 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         return merged
 
     def _apply_nxt(df: pd.DataFrame) -> pd.DataFrame:
-        """KRX 장외시간에 NXT 데이터를 별도 캔들로 추가합니다."""
-        if df.empty or nxt_price <= 0:
+        """KRX 장외시간에 NXT 데이터를 별도 캔들로 추가합니다.
+
+        1) Google Sheets에 저장된 과거 NXT 10분봉을 날짜별로 장외 시간에 보충
+        2) 당일은 실시간 NXT 스냅샷 사용
+        """
+        if df.empty:
+            return df
+
+        # ── 1) 과거 NXT 데이터 (Google Sheets) ──
+        try:
+            from nxt_store import load_nxt_history
+            nxt_hist = load_nxt_history(code=code, days=28)
+            if not nxt_hist.empty:
+                # 장외 시간 NXT 캔들만: 16:00~08:59
+                nxt_hist = nxt_hist[
+                    (nxt_hist["datetime"].dt.hour >= 16) | (nxt_hist["datetime"].dt.hour < 9)
+                ]
+                # 당일 제외 (당일은 실시간으로 처리)
+                nxt_hist = nxt_hist[nxt_hist["datetime"].dt.date < kst_now.date()]
+                if not nxt_hist.empty:
+                    nxt_rows = pd.DataFrame({
+                        "Open": nxt_hist["open"].values,
+                        "High": nxt_hist["high"].values,
+                        "Low": nxt_hist["low"].values,
+                        "Close": nxt_hist["close"].values,
+                        "Volume": nxt_hist["volume"].values,
+                    }, index=pd.DatetimeIndex(nxt_hist["datetime"].values))
+                    # 거래량 0인 행 제거
+                    nxt_rows = nxt_rows[nxt_rows["Volume"] > 0]
+                    if not nxt_rows.empty:
+                        df = pd.concat([df, nxt_rows]).sort_index()
+                        df = df[~df.index.duplicated(keep="last")]
+        except Exception as e:
+            print(f"[_apply_nxt] 과거 NXT 로드 오류: {e}")
+
+        # ── 2) 당일 실시간 NXT ──
+        if nxt_price <= 0:
             return df
         last = df.index[-1]
         after_hours = kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30)
         if after_hours:
-            # 장 마감 후: NXT OHLCV를 별도 캔들로 추가
-            # NXT 시간 파싱 (예: "1243" → 12:43)
             nxt_ts = kst_now.replace(second=0, microsecond=0)
             if nxt_time and len(nxt_time) >= 4:
                 try:
@@ -1106,7 +1147,6 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
             }, index=[nxt_ts])
             df = pd.concat([df, new_row])
         else:
-            # 장중: NXT 거래량만 마지막 캔들에 합산
             if nxt_vol > 0:
                 df.at[last, "Volume"] = float(df.at[last, "Volume"]) + nxt_vol
         return df

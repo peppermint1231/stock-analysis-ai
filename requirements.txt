@@ -13,3 +13,5 @@ streamlit-local-storage
 finance-datareader
 setuptools
 pykrx
+gspread
+google-auth
