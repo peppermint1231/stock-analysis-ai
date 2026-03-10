@@ -97,21 +97,17 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Hide Material Symbols icon text that leaks on mobile */
+        /* Hide Material Symbols icon text completely on mobile (font often fails to load) */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
-            font-size: 1.1rem !important;
+            font-size: 0 !important;
+            width: 0 !important;
+            max-width: 0 !important;
             overflow: hidden !important;
-            width: 1.2em !important;
-            max-width: 1.2em !important;
             display: inline-block !important;
-            vertical-align: middle !important;
-            line-height: 1 !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
-
-        /* Toast / alert icon overflow fix */
-        div[data-testid="stToast"] span.material-symbols-rounded,
-        div[data-testid="stAlert"] span.material-symbols-rounded { overflow: hidden !important; width: 1.2em !important; max-width: 1.2em !important; }
 
         /* Inputs */
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
@@ -146,26 +142,9 @@ st.markdown(
         display: inline-block !important;
         vertical-align: middle !important;
         text-overflow: clip !important;
-        max-width: 1.4em !important;
+        max-width: 1.5em !important;
+        width: 1.5em !important;
         line-height: 1 !important;
-    }
-
-    /* Sidebar collapse button icon fix */
-    section[data-testid="stSidebar"] button span.material-symbols-rounded,
-    [data-testid="stSidebarCollapseButton"] span.material-symbols-rounded,
-    button[data-testid="stBaseButton-headerNoPadding"] span.material-symbols-rounded {
-        overflow: hidden !important;
-        max-width: 1.4em !important;
-        font-size: 1.2rem !important;
-    }
-
-    /* Expander arrow icon fix */
-    div[data-testid="stExpander"] summary span.material-symbols-rounded,
-    details summary span.material-symbols-rounded {
-        overflow: hidden !important;
-        max-width: 1.4em !important;
-        font-size: 1rem !important;
-        width: 1.2em !important;
     }
 
     /* ── Tablet breakpoint ──────────────────────────────────────────────── */
