@@ -1023,7 +1023,8 @@ def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
 
 
 @st.cache_data(ttl=120, show_spinner="멀티 분봉 데이터 준비 중...")
-def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: str = ""):
+def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: str = "",
+                                   nxt_price: float = 0.0, nxt_vol: float = 0.0):
     """각 분봉별로 yfinance에서 최대 기간 데이터를 직접 수집하고, 당일은 KIS 1분봉으로 보강합니다."""
     import yfinance as yf
     from kis_api import _fetch_kis_today_minutes
@@ -1077,14 +1078,39 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         merged = merged[(merged.index <= kst_now) & (merged.index.hour >= 9) & (merged.index.hour < 16)]
         return merged
 
+    def _apply_nxt(df: pd.DataFrame) -> pd.DataFrame:
+        """NXT 가격/볼륨을 마지막 캔들에 반영합니다."""
+        if df.empty or nxt_price <= 0:
+            return df
+        last = df.index[-1]
+        after_hours = kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30)
+        if after_hours:
+            # 장 마감 후: 새 캔들 추가
+            current_minute = kst_now.replace(second=0, microsecond=0)
+            if current_minute > last:
+                new_row = pd.DataFrame({
+                    "Open": [nxt_price], "High": [nxt_price], "Low": [nxt_price],
+                    "Close": [nxt_price], "Volume": [nxt_vol],
+                }, index=[current_minute])
+                df = pd.concat([df, new_row])
+                return df
+        # 장중 또는 같은 캔들 갱신
+        df.at[last, "Close"] = nxt_price
+        df.at[last, "High"] = max(float(df.at[last, "High"]), nxt_price)
+        df.at[last, "Low"] = min(float(df.at[last, "Low"]), nxt_price)
+        if nxt_vol > 0:
+            df.at[last, "Volume"] = float(df.at[last, "Volume"]) + nxt_vol
+        return df
+
     # 각 분봉별 기간: 60분=4주, 30분=2주, 15분=1주, 5분=3일, 1분=1일
-    df_60 = calculate_indicators(_fetch_yf_intraday("60m", "28d"))   # 4주
-    df_30 = calculate_indicators(_fetch_yf_intraday("30m", "14d"))   # 2주
-    df_15 = calculate_indicators(_fetch_yf_intraday("15m", "7d"))    # 1주
-    df_5 = calculate_indicators(_fetch_yf_intraday("5m", "3d"))      # 3일
+    df_60 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("60m", "28d")))   # 4주
+    df_30 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("30m", "14d")))   # 2주
+    df_15 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("15m", "7d")))    # 1주
+    df_5 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("5m", "3d")))      # 3일
 
     # 1분봉: 1일 (KIS 당일 실시간만)
-    df_1 = calculate_indicators(kis_today.copy() if not kis_today.empty else df_1m.sort_index())
+    df_1_raw = kis_today.copy() if not kis_today.empty else df_1m.sort_index()
+    df_1 = calculate_indicators(_apply_nxt(df_1_raw))
 
     return df_60, df_30, df_15, df_5, df_1
 
@@ -1316,7 +1342,10 @@ with tab_kr_indie:
                     render_stock_nxt_card(kr_code, selected_name)
 
                 _today_cache = datetime.now(tz=timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H")
-                df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(kr_code, df_kr, _cache_date=_today_cache)
+                _nxt_p = nxt_price if run_nxt else 0.0
+                _nxt_v = nxt_vol if run_nxt else 0.0
+                df_60, df_30, df_15, df_5, df_1 = _get_multi_intraday_timeframe(
+                    kr_code, df_kr, _cache_date=_today_cache, nxt_price=_nxt_p, nxt_vol=_nxt_v)
                 t1, t2, t3, t4, t5, t6 = st.tabs(["📊 종합 리포트", "🕒 60분봉", "🕒 30분봉", "🕒 15분봉", "🕒 5분봉", "🕒 1분봉"])
                 with t1:
                     render_multi_ai_content(kr_code, selected_name, market_name, "KRW", {"60min": df_60, "30min": df_30, "15min": df_15, "5min": df_5, "1min": df_1}, [])
