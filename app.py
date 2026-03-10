@@ -97,27 +97,36 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Hide Material Symbols icon text on mobile, show Unicode fallbacks */
+        /* Hide Material Symbols icon text on mobile — transparent text + clipped width */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
-            font-size: 0 !important;
+            color: transparent !important;
             overflow: hidden !important;
             display: inline-block !important;
+            width: 1.5em !important;
+            max-width: 1.5em !important;
+            position: relative !important;
+        }
+        /* Unicode fallback icons rendered via ::after (visible over transparent parent) */
+        span.material-symbols-rounded::after {
+            position: absolute; left: 0; top: 0;
+            color: var(--text-color, #333) !important;
+            font-family: sans-serif !important;
         }
         /* Sidebar open button (collapsed state): ☰ */
         [data-testid="stSidebarCollapsedControl"] span.material-symbols-rounded::after {
-            content: "☰"; font-size: 1.4rem !important; font-family: sans-serif !important;
+            content: "☰"; font-size: 1.4rem !important;
         }
         /* Sidebar close button (expanded state): ✕ */
         section[data-testid="stSidebar"] button span.material-symbols-rounded::after {
-            content: "✕"; font-size: 1.2rem !important; font-family: sans-serif !important;
+            content: "✕"; font-size: 1.2rem !important;
         }
         /* Expander arrow: ▶ / ▼ */
         details summary span.material-symbols-rounded::after {
-            content: "▶"; font-size: 0.8rem !important; font-family: sans-serif !important;
+            content: "▶"; font-size: 0.8rem !important;
         }
         details[open] summary span.material-symbols-rounded::after {
-            content: "▼"; font-size: 0.8rem !important; font-family: sans-serif !important;
+            content: "▼"; font-size: 0.8rem !important;
         }
 
         /* Inputs */
