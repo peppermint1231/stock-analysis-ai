@@ -12,7 +12,6 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from bs4 import BeautifulSoup
-from streamlit_autorefresh import st_autorefresh
 
 
 # ─── Style Helpers ────────────────────────────────────────────────────────────
@@ -543,10 +542,6 @@ def _fetch_kis_realtime(code: str) -> dict:
 def render_stock_nxt_card(code: str, name: str) -> None:
     """단일 종목의 한국투자증권 실시간 시세와 NXT 거래 데이터를 비교 표시합니다."""
     from krx_data import get_nxt_ranking
-
-    auto_on = st.toggle("🔄 실시간 자동 갱신 (15초)", key=f"nxt_card_auto_{code}", value=False)
-    if auto_on:
-        st_autorefresh(interval=15_000, limit=None, key=f"nxt_card_refresh_{code}")
 
     from datetime import datetime, timedelta, timezone
     _kst = timezone(timedelta(hours=9))

@@ -21,8 +21,6 @@ import yfinance as yf
 from bs4 import BeautifulSoup
 from streamlit_local_storage import LocalStorage
 
-from streamlit_autorefresh import st_autorefresh
-
 from ai_client import get_gemini_response
 from date_fragment import date_selector_fragment
 from kis_ws import get_kis_client, get_kis_config
@@ -482,10 +480,9 @@ _APP_VERSION = "v3.1"
 
 _CHANGELOG = {
     "v3.1": [
-        "KRX/NXT 랭킹 테이블 실시간 자동 새로고침 (30초 간격 토글)",
-        "US 시장 현황 실시간 자동 새로고침 (30초 간격 토글)",
-        "개별 분석 페이지 KRX+NXT 현황 실시간 자동 갱신 (15초 간격 토글)",
-        "랭킹 데이터 캐시 TTL 30초로 단축 (기존 5~10분)",
+        "KRX+NXT 현황 체결시간/조회시간 초 단위 표시",
+        "야간선물 KST/CT 이중 시간 표시 (DST 자동 판별)",
+        "yfinance 속도 제한 대응 (지수/원자재 분리 다운로드)",
     ],
     "v3.0": [
         "NXT 전 종목 5분봉 스냅샷 → Google Sheets 자동 저장 (28일 보관)",
@@ -1318,9 +1315,6 @@ def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
                 st.session_state["krx_market_loaded"] = True
                 st.rerun(fragment=True)
         else:
-            auto_on = st.toggle("🔄 자동 새로고침 (30초)", key="krx_auto_refresh", value=False)
-            if auto_on:
-                st_autorefresh(interval=30_000, limit=None, key="krx_rank_refresh")
             krx_time_str = now_kst().strftime("%m/%d %H:%M")
             st.session_state["krx_time"] = krx_time_str
             st.subheader(f"🔥 오늘의 거래량 TOP 10 ({krx_time_str})")
@@ -1337,9 +1331,6 @@ def _render_krx_market_tab(name_to_ticker_map: dict) -> None:
                 st.session_state["krx_nxt_market_loaded"] = True
                 st.rerun(fragment=True)
         else:
-            auto_on_nxt = st.toggle("🔄 자동 새로고침 (30초)", key="nxt_auto_refresh", value=False)
-            if auto_on_nxt:
-                st_autorefresh(interval=30_000, limit=None, key="nxt_rank_refresh")
             krx_time_str = now_kst().strftime("%m/%d %H:%M")
             st.session_state["krx_time"] = krx_time_str
             try:
@@ -1575,12 +1566,6 @@ def _render_us_market_tab() -> None:
             st.session_state["us_market_loaded"] = True
             st.rerun(fragment=True)
         return
-
-    auto_on_us = st.toggle("🔄 자동 새로고침 (30초)", key="us_auto_refresh", value=False)
-    if auto_on_us:
-        st_autorefresh(interval=30_000, limit=None, key="us_rank_refresh")
-        # 자동 갱신 시 캐시된 데이터 삭제하여 새로 가져오기
-        st.session_state.pop("us_top_df", None)
 
     us_time_str = now_kst().strftime("%m/%d %H:%M")
     st.session_state["us_time"] = us_time_str
