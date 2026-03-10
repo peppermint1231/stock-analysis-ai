@@ -1322,16 +1322,25 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         try:
             from nxt_store import load_nxt_history
             nxt_hist = load_nxt_history(code=code, days=28)
+            _n_total = len(nxt_hist)
             if not nxt_hist.empty:
                 # 장외 시간만: 16:00~08:59
                 nxt_hist = nxt_hist[
                     (nxt_hist["datetime"].dt.hour >= 16) | (nxt_hist["datetime"].dt.hour < 9)
                 ]
+                _n_afterhrs = len(nxt_hist)
                 if not nxt_hist.empty:
                     nxt_candles = _nxt_snapshots_to_candles(nxt_hist, freq)
+                    _n_candles = len(nxt_candles)
+                    print(f"[_apply_nxt] {code} Sheets: 전체={_n_total}, 장외={_n_afterhrs}, "
+                          f"캔들({freq})={_n_candles}, 날짜범위={nxt_hist['datetime'].min()}~{nxt_hist['datetime'].max()}")
                     if not nxt_candles.empty:
                         df = pd.concat([df, nxt_candles]).sort_index()
                         df = df[~df.index.duplicated(keep="last")]
+                else:
+                    print(f"[_apply_nxt] {code} Sheets: 전체={_n_total}, 장외=0 (장외 시간 데이터 없음)")
+            else:
+                print(f"[_apply_nxt] {code} Sheets: 데이터 없음 (해당 종목 미수집)")
         except Exception as e:
             print(f"[_apply_nxt] NXT 로드 오류: {e}")
 
