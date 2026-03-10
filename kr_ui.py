@@ -565,8 +565,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.warning("시세 데이터를 가져올 수 없습니다. 장 외 시간이거나 네트워크를 확인해주세요.")
         return
 
-    naver_krx_url = f"https://finance.naver.com/item/main.naver?code={code}"
-    naver_nxt_url = f"https://finance.naver.com/item/nxt_main.naver?code={code}"
+    naver_url = f"https://stock.naver.com/domestic/stock/{code}/price"
 
     # ── KRX 현황 카드 ──
     if nav["ok"]:
@@ -586,7 +585,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.markdown(
             f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{bg_tint};margin-bottom:8px;">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-    <a href="{naver_krx_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">📡 KRX 현황</a>
+    <a href="{naver_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">📡 KRX 현황</a>
     <span style="font-size:0.72rem;color:#999;">{kis_trade_label}</span>
   </div>
   <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
@@ -653,7 +652,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.markdown(
             f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{n_bg};margin-bottom:8px;">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-    <a href="{naver_nxt_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
+    <a href="{naver_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
     <span style="font-size:0.72rem;color:#999;">20분 지연 · {nxt_time_label}</span>
   </div>
   <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
@@ -672,7 +671,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.markdown(
             f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:#fafafa;margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;align-items:center;">
-    <a href="{naver_nxt_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
+    <a href="{naver_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
     <span style="font-size:0.75rem;color:#999;">20분 지연</span>
   </div>
   <div style="color:#888;font-size:0.85rem;margin-top:8px;">상위 200 종목에 미포함 — NXT 단독 거래 데이터 없음</div>
