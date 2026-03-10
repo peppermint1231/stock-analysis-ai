@@ -58,7 +58,7 @@ def today_kst() -> datetime:
 
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="collapsed")
+st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="expanded")
 
 localS = LocalStorage()
 
@@ -68,7 +68,7 @@ st.markdown(
     /* ── Mobile-first responsive styles ─────────────────────────────────── */
     @media (max-width: 768px) {
         /* Layout & spacing — tighter */
-        .block-container { padding-top: 0.5rem; padding-left: 0.4rem; padding-right: 0.4rem; }
+        .block-container { padding-top: 1rem; padding-left: 0.4rem; padding-right: 0.4rem; }
 
         /* Reduce default vertical gaps between Streamlit elements */
         div[data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
@@ -200,6 +200,19 @@ st.markdown(
 st.markdown(
     '<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">',
     unsafe_allow_html=True,
+)
+
+# Auto-collapse sidebar on mobile (desktop stays expanded via initial_sidebar_state)
+components.html(
+    """<script>
+    (function(){try{
+        if(window.parent.innerWidth<=768){
+            var btn=window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
+            if(btn) setTimeout(function(){btn.click();},300);
+        }
+    }catch(e){}})();
+    </script>""",
+    height=0,
 )
 
 
