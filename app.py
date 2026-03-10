@@ -1309,40 +1309,38 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         }).dropna(subset=["Close"])
         return resampled
 
-    def _apply_nxt(df: pd.DataFrame, freq: str = "5min") -> pd.DataFrame:
-        """KRX 장외시간에 NXT 데이터를 적절한 시간 프레임 캔들로 추가합니다.
+    # ── NXT 장외 시간 데이터 한 번만 로드 (5개 분봉에 재사용) ──
+    _nxt_afterhrs = pd.DataFrame()
+    try:
+        from nxt_store import load_nxt_history
+        _nxt_raw = load_nxt_history(code=code, days=28)
+        if not _nxt_raw.empty:
+            _nxt_afterhrs = _nxt_raw[
+                (_nxt_raw["datetime"].dt.hour >= 16) | (_nxt_raw["datetime"].dt.hour < 9)
+            ]
+            print(f"[NXT] {code}: 전체={len(_nxt_raw)}, 장외={len(_nxt_afterhrs)}행, "
+                  f"범위={_nxt_afterhrs['datetime'].min() if not _nxt_afterhrs.empty else 'N/A'}"
+                  f"~{_nxt_afterhrs['datetime'].max() if not _nxt_afterhrs.empty else 'N/A'}")
+        else:
+            print(f"[NXT] {code}: Sheets 데이터 없음")
+    except Exception as e:
+        print(f"[NXT] {code}: Sheets 로드 실패 — {e}")
 
-        1) Google Sheets의 NXT 스냅샷 → 개별 캔들 변환 → freq로 리샘플링
-        2) 당일 실시간 NXT 스냅샷 (마지막 시트 이후 최신 데이터)
-        """
+    def _apply_nxt(df: pd.DataFrame, freq: str = "5min") -> pd.DataFrame:
+        """KRX 장외시간에 NXT 데이터를 적절한 시간 프레임 캔들로 추가합니다."""
         if df.empty:
             return df
 
-        # ── 1) Google Sheets NXT 데이터 (과거 + 당일) ──
-        try:
-            from nxt_store import load_nxt_history
-            nxt_hist = load_nxt_history(code=code, days=28)
-            _n_total = len(nxt_hist)
-            if not nxt_hist.empty:
-                # 장외 시간만: 16:00~08:59
-                nxt_hist = nxt_hist[
-                    (nxt_hist["datetime"].dt.hour >= 16) | (nxt_hist["datetime"].dt.hour < 9)
-                ]
-                _n_afterhrs = len(nxt_hist)
-                if not nxt_hist.empty:
-                    nxt_candles = _nxt_snapshots_to_candles(nxt_hist, freq)
-                    _n_candles = len(nxt_candles)
-                    print(f"[_apply_nxt] {code} Sheets: 전체={_n_total}, 장외={_n_afterhrs}, "
-                          f"캔들({freq})={_n_candles}, 날짜범위={nxt_hist['datetime'].min()}~{nxt_hist['datetime'].max()}")
-                    if not nxt_candles.empty:
-                        df = pd.concat([df, nxt_candles]).sort_index()
-                        df = df[~df.index.duplicated(keep="last")]
-                else:
-                    print(f"[_apply_nxt] {code} Sheets: 전체={_n_total}, 장외=0 (장외 시간 데이터 없음)")
-            else:
-                print(f"[_apply_nxt] {code} Sheets: 데이터 없음 (해당 종목 미수집)")
-        except Exception as e:
-            print(f"[_apply_nxt] NXT 로드 오류: {e}")
+        # ── 1) 사전 로드된 NXT 장외 데이터 → 캔들 변환 + 리샘플링 ──
+        if not _nxt_afterhrs.empty:
+            try:
+                nxt_candles = _nxt_snapshots_to_candles(_nxt_afterhrs, freq)
+                if not nxt_candles.empty:
+                    print(f"[_apply_nxt] {code} ({freq}): {len(nxt_candles)}개 NXT 캔들 추가")
+                    df = pd.concat([df, nxt_candles]).sort_index()
+                    df = df[~df.index.duplicated(keep="last")]
+            except Exception as e:
+                print(f"[_apply_nxt] 캔들 변환 오류 ({freq}): {e}")
 
         # ── 2) 당일 실시간 NXT (시트에 아직 없는 최신 데이터) ──
         if nxt_price <= 0:

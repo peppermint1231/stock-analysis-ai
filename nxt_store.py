@@ -99,6 +99,26 @@ def save_nxt_snapshot(nxt_df: pd.DataFrame) -> int:
 
 # ─── 조회 ──────────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_all_nxt_data() -> pd.DataFrame:
+    """Google Sheets에서 전체 NXT 데이터를 로드합니다 (5분 캐시)."""
+    ws = _get_worksheet()
+    all_data = ws.get_all_values()
+
+    if len(all_data) <= 1:
+        return pd.DataFrame(columns=_HEADER)
+
+    df = pd.DataFrame(all_data[1:], columns=_HEADER)
+    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    cutoff = datetime.now(_KST) - timedelta(days=_MAX_DAYS)
+    df = df[df["datetime"] >= cutoff]
+    print(f"[nxt_store] Sheets 전체 로드: {len(all_data)-1}행 → 필터 후 {len(df)}행")
+    return df.reset_index(drop=True)
+
+
 def load_nxt_history(code: str | None = None, days: int = 28) -> pd.DataFrame:
     """Google Sheets에서 NXT 과거 데이터를 로드합니다.
 
@@ -109,22 +129,14 @@ def load_nxt_history(code: str | None = None, days: int = 28) -> pd.DataFrame:
     Returns:
         DataFrame with columns: datetime, code, name, open, high, low, close, volume
     """
-    ws = _get_worksheet()
-    all_data = ws.get_all_values()
-
-    if len(all_data) <= 1:  # 헤더만 있음
-        return pd.DataFrame(columns=_HEADER)
-
-    df = pd.DataFrame(all_data[1:], columns=_HEADER)
-
-    # 타입 변환
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    df = _load_all_nxt_data()
+    if df.empty:
+        return df
 
     # 기간 필터
-    cutoff = datetime.now(_KST) - timedelta(days=days)
-    df = df[df["datetime"] >= cutoff]
+    if days < _MAX_DAYS:
+        cutoff = datetime.now(_KST) - timedelta(days=days)
+        df = df[df["datetime"] >= cutoff]
 
     # 종목 필터
     if code:
