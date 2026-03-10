@@ -58,7 +58,7 @@ def today_kst() -> datetime:
 
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="auto")
+st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="collapsed")
 
 localS = LocalStorage()
 
