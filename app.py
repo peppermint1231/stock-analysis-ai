@@ -58,7 +58,7 @@ def today_kst() -> datetime:
 
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Stock Technical Analysis")
+st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="expanded")
 
 localS = LocalStorage()
 
@@ -97,36 +97,15 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Hide Material Symbols icon text on mobile — transparent text + clipped width */
+        /* Hide Material Symbols icon text on mobile — clip to 0 */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
-            color: transparent !important;
+            font-size: 0 !important;
+            width: 0 !important;
+            max-width: 0 !important;
             overflow: hidden !important;
-            display: inline-block !important;
-            width: 1.5em !important;
-            max-width: 1.5em !important;
-            position: relative !important;
-        }
-        /* Unicode fallback icons rendered via ::after (visible over transparent parent) */
-        span.material-symbols-rounded::after {
-            position: absolute; left: 0; top: 0;
-            color: var(--text-color, #333) !important;
-            font-family: sans-serif !important;
-        }
-        /* Sidebar open button (collapsed state): ☰ */
-        [data-testid="stSidebarCollapsedControl"] span.material-symbols-rounded::after {
-            content: "☰"; font-size: 1.4rem !important;
-        }
-        /* Sidebar close button (expanded state): ✕ */
-        section[data-testid="stSidebar"] button span.material-symbols-rounded::after {
-            content: "✕"; font-size: 1.2rem !important;
-        }
-        /* Expander arrow: ▶ / ▼ */
-        details summary span.material-symbols-rounded::after {
-            content: "▶"; font-size: 0.8rem !important;
-        }
-        details[open] summary span.material-symbols-rounded::after {
-            content: "▼"; font-size: 0.8rem !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
 
         /* Inputs */
@@ -177,11 +156,37 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Korean HTML lang tag to prevent browser auto-translation
+# Korean HTML lang tag + mobile sidebar toggle button
 st.markdown(
     """<script>
         window.parent.document.getElementsByTagName('html')[0].setAttribute('lang', 'ko');
     </script>""",
+    unsafe_allow_html=True,
+)
+
+# Mobile: floating sidebar toggle button (visible only on small screens)
+st.markdown(
+    """
+    <style>
+    @media (max-width: 768px) {
+        #mobile-sidebar-btn {
+            display: block !important;
+            position: fixed; top: 0.6rem; left: 0.6rem; z-index: 999999;
+            background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            padding: 0.3rem 0.6rem; font-size: 1.3rem; cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15); line-height: 1;
+        }
+    }
+    @media (min-width: 769px) {
+        #mobile-sidebar-btn { display: none !important; }
+    }
+    </style>
+    <div id="mobile-sidebar-btn" onclick="
+        var btn = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl] button')
+            || window.parent.document.querySelector('button[data-testid=stBaseButton-headerNoPadding]');
+        if(btn) btn.click();
+    ">☰</div>
+    """,
     unsafe_allow_html=True,
 )
 
