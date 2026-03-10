@@ -278,16 +278,14 @@ def get_kospi_night_futures() -> dict | None:
 
         pct = (diff / value_day) * 100
 
-        ttime = str(info.get("ttime", "")).strip()
-        time_str = ""
-        if len(ttime) >= 6:
-            # HHMMSSxx → HH:MM:SS
-            time_str = f"{ttime[:2]}:{ttime[2:4]}:{ttime[4:6]}"
-        elif len(ttime) >= 4:
-            time_str = f"{ttime[:2]}:{ttime[2:4]}"
-        # "30:00" 등 비정상 시간 보정 (시간 ≥ 24 → 무효)
-        if time_str and int(ttime[:2]) >= 24:
-            time_str = ""
+        ttime = str(info.get("ttime", "")).strip().zfill(6)
+        # ttime은 전일 기준 연장시간 (예: 300000 = 익일 06:00:00)
+        hh = int(ttime[:2])
+        mm = ttime[2:4]
+        ss = ttime[4:6]
+        if hh >= 24:
+            hh -= 24  # 30 → 06, 25 → 01 등
+        time_str = f"{hh:02d}:{mm}:{ss}"
 
         return {"price": price, "diff": diff, "pct": pct, "time": time_str}
 
@@ -356,13 +354,13 @@ def _render_sidebar() -> None:
     for name, (val, diff, pct) in data.get("indices", {}).items():
         url = _SIDEBAR_URLS.get(name, "#")
         val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
-        st.sidebar.markdown(f"**[{name}]({url})**")
+        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.05rem;font-weight:bold;text-decoration:none;'>{name}</a>", unsafe_allow_html=True)
         st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
 
     # ── 코스피 야간선물 ─────────────────────────────────────────────────────────
     night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
     night = get_kospi_night_futures()
-    st.sidebar.markdown(f"**[🌙 KOSPI 야간선물]({night_url})**")
+    st.sidebar.markdown(f"<a href='{night_url}' style='font-size:1.05rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
     if night:
         nt = night.get("time", "")
         time_lbl = f"(기준: {nt})" if nt else ""
