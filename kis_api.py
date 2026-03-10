@@ -259,6 +259,6 @@ def fetch_daily_history(code: str, start_date_str: str, end_date_str: str) -> pd
     for col in ["Open", "High", "Low", "Close", "Volume"]:
         df[col] = df[col].astype(float)
 
-    df = df.set_index("Date").sort_index()
+    df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].sort_index()
     start_dt, end_dt = pd.to_datetime(start_date_str), pd.to_datetime(end_date_str)
     return df[(df.index >= start_dt) & (df.index <= end_dt)]
