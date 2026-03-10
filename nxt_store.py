@@ -30,13 +30,18 @@ _gc: gspread.Client | None = None
 
 
 def _get_client() -> gspread.Client:
-    """gspread 클라이언트를 반환합니다 (싱글턴)."""
+    """gspread 클라이언트를 반환합니다 (싱글턴, 60초 타임아웃)."""
     global _gc
     with _client_lock:
         if _gc is None:
             creds_info = dict(st.secrets["gcp_service_account"])
             creds = Credentials.from_service_account_info(creds_info, scopes=_SCOPES)
             _gc = gspread.authorize(creds)
+            # 대용량 시트 로드 시 타임아웃 방지 (기본 60초)
+            try:
+                _gc.http_client.session.timeout = 60
+            except AttributeError:
+                pass  # gspread 버전 차이 대응
         return _gc
 
 
@@ -101,11 +106,27 @@ def save_nxt_snapshot(nxt_df: pd.DataFrame) -> int:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_all_nxt_data() -> pd.DataFrame:
-    """Google Sheets에서 전체 NXT 데이터를 로드합니다 (5분 캐시)."""
-    ws = _get_worksheet()
-    all_data = ws.get_all_values()
+    """Google Sheets에서 전체 NXT 데이터를 로드합니다 (5분 캐시, 최대 3회 재시도)."""
+    global _gc
+    all_data = None
 
-    if len(all_data) <= 1:
+    for attempt in range(3):
+        try:
+            ws = _get_worksheet()
+            all_data = ws.get_all_values()
+            break
+        except Exception as e:
+            print(f"[nxt_store] Sheets 로드 시도 {attempt + 1}/3 실패: {e}")
+            if attempt < 2:
+                # 클라이언트 리셋 후 재시도
+                with _client_lock:
+                    _gc = None
+                time.sleep(2)
+            else:
+                print("[nxt_store] Sheets 로드 최종 실패 — 빈 DataFrame 반환")
+                return pd.DataFrame(columns=_HEADER)
+
+    if all_data is None or len(all_data) <= 1:
         return pd.DataFrame(columns=_HEADER)
 
     df = pd.DataFrame(all_data[1:], columns=_HEADER)

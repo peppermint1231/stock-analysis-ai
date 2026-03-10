@@ -585,9 +585,9 @@ def render_stock_nxt_card(code: str, name: str) -> None:
 
         st.markdown(
             f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{bg_tint};margin-bottom:8px;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
     <a href="{naver_krx_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">📡 KRX 현황</a>
-    <span style="font-size:0.75rem;color:#999;">{kis_trade_label}</span>
+    <span style="font-size:0.72rem;color:#999;">{kis_trade_label}</span>
   </div>
   <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
     <span style="font-size:1.6rem;font-weight:bold;">{nav['price']:,.0f}<small style="font-size:0.8rem;"> 원</small></span>
@@ -634,6 +634,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         nv = float(nxt_row["NXT거래량"])
         nva = float(nxt_row["NXT거래대금"])
         ns = "+" if nr > 0 else ""
+        n_diff = round(np_ - np_ / (1 + nr / 100)) if abs(nr) > 0.001 else 0
         n_col = "#D32F2F" if nr > 0 else "#1976D2" if nr < 0 else "#666"
         n_bg = "rgba(211,47,47,0.04)" if nr > 0 else "rgba(25,118,210,0.04)" if nr < 0 else "#fafafa"
 
@@ -651,13 +652,13 @@ def render_stock_nxt_card(code: str, name: str) -> None:
 
         st.markdown(
             f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{n_bg};margin-bottom:8px;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
     <a href="{naver_nxt_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
-    <span style="font-size:0.75rem;color:#999;">20분 지연 · {nxt_time_label}</span>
+    <span style="font-size:0.72rem;color:#999;">20분 지연 · {nxt_time_label}</span>
   </div>
   <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
     <span style="font-size:1.6rem;font-weight:bold;">{np_:,.0f}<small style="font-size:0.8rem;"> 원</small></span>
-    <span style="color:{n_col};font-weight:bold;font-size:0.95rem;">{ns}{nr:.2f}%</span>
+    <span style="color:{n_col};font-weight:bold;font-size:0.95rem;">{ns}{n_diff:,.0f} ({ns}{nr:.2f}%)</span>
   </div>
   <div style="display:flex;gap:20px;margin-top:10px;font-size:0.85rem;color:#555;">
     <span>거래량 <b>{nv:,.0f}</b> 주</span>
