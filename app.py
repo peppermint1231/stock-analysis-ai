@@ -97,14 +97,34 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Material Symbols — clip icon name text to icon-sized box */
+        /* Material Symbols — completely hide icon text on mobile */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            height: 0 !important;
             overflow: hidden !important;
-            display: inline-block !important;
-            width: 1.3em !important;
-            max-width: 1.3em !important;
-            vertical-align: middle !important;
+        }
+        /* Sidebar open button (hamburger) */
+        [data-testid="stSidebarCollapsedControl"] button {
+            min-width: 2.5rem !important;
+            min-height: 2.5rem !important;
+        }
+        [data-testid="stSidebarCollapsedControl"] button::before {
+            content: "\2630";
+            font-size: 1.3rem;
+            font-family: system-ui, -apple-system, sans-serif !important;
+        }
+        /* Sidebar close button (X) */
+        [data-testid="stSidebarCollapseButton"] button {
+            min-width: 2rem !important;
+            min-height: 2rem !important;
+        }
+        [data-testid="stSidebarCollapseButton"] button::before {
+            content: "\2715";
+            font-size: 1.1rem;
+            font-family: system-ui, -apple-system, sans-serif !important;
         }
 
         /* Inputs */
@@ -133,16 +153,18 @@ st.markdown(
         div[data-testid="stSlider"] { padding: 0.3rem 0 !important; }
     }
 
-    /* ── Global Material Symbols icon fix (all viewports) ────────────── */
-    span.material-symbols-rounded,
-    [data-testid="stIconMaterial"] {
-        overflow: hidden !important;
-        display: inline-block !important;
-        vertical-align: middle !important;
-        text-overflow: clip !important;
-        max-width: 1.5em !important;
-        width: 1.5em !important;
-        line-height: 1 !important;
+    /* ── Material Symbols icon fix — desktop/tablet only ─────────────── */
+    @media (min-width: 769px) {
+        span.material-symbols-rounded,
+        [data-testid="stIconMaterial"] {
+            overflow: hidden !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+            text-overflow: clip !important;
+            max-width: 1.5em !important;
+            width: 1.5em !important;
+            line-height: 1 !important;
+        }
     }
 
     /* ── Tablet breakpoint ──────────────────────────────────────────────── */
@@ -155,16 +177,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Force-load Material Symbols font (prevents icon text fallback on mobile)
+# Load Material Symbols font for desktop (mobile hides icons via CSS)
 st.markdown(
-    """
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
-    <style>
-    span.material-symbols-rounded {
-        font-family: 'Material Symbols Rounded' !important;
-    }
-    </style>
-    """,
+    '<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">',
     unsafe_allow_html=True,
 )
 
