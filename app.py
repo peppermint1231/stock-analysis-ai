@@ -1052,8 +1052,9 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
             if yf_df.index.tz is not None:
                 yf_df.index = yf_df.index.tz_convert("Asia/Seoul").tz_localize(None)
             yf_df = yf_df[["Open", "High", "Low", "Close", "Volume"]]
-            # 미래 데이터 제거 + 당일 yfinance 제거 (KIS 실시간으로 대체)
+            # 미래 데이터 제거 + 장 시간 외 이상 데이터 제거 + 당일 yfinance 제거
             yf_df = yf_df[yf_df.index <= kst_now]
+            yf_df = yf_df[(yf_df.index.hour >= 9) & (yf_df.index.hour < 16)]
             yf_past = yf_df[yf_df.index.normalize() < pd.Timestamp(today_str)]
         else:
             yf_past = pd.DataFrame()
