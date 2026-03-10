@@ -97,16 +97,27 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Hide Material Symbols icon text completely on mobile (font often fails to load) */
+        /* Hide Material Symbols icon text on mobile, show Unicode fallbacks */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
             font-size: 0 !important;
-            width: 0 !important;
-            max-width: 0 !important;
             overflow: hidden !important;
             display: inline-block !important;
-            padding: 0 !important;
-            margin: 0 !important;
+        }
+        /* Sidebar open button (collapsed state): ☰ */
+        [data-testid="stSidebarCollapsedControl"] span.material-symbols-rounded::after {
+            content: "☰"; font-size: 1.4rem !important; font-family: sans-serif !important;
+        }
+        /* Sidebar close button (expanded state): ✕ */
+        section[data-testid="stSidebar"] button span.material-symbols-rounded::after {
+            content: "✕"; font-size: 1.2rem !important; font-family: sans-serif !important;
+        }
+        /* Expander arrow: ▶ / ▼ */
+        details summary span.material-symbols-rounded::after {
+            content: "▶"; font-size: 0.8rem !important; font-family: sans-serif !important;
+        }
+        details[open] summary span.material-symbols-rounded::after {
+            content: "▼"; font-size: 0.8rem !important; font-family: sans-serif !important;
         }
 
         /* Inputs */
