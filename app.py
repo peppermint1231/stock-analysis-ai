@@ -58,7 +58,7 @@ def today_kst() -> datetime:
 
 
 # ─── Page Config ──────────────────────────────────────────────────────────────
-st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="expanded")
+st.set_page_config(layout="wide", page_title="Stock Technical Analysis", initial_sidebar_state="auto")
 
 localS = LocalStorage()
 
@@ -200,19 +200,6 @@ st.markdown(
 st.markdown(
     '<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">',
     unsafe_allow_html=True,
-)
-
-# Auto-collapse sidebar on mobile (desktop stays expanded via initial_sidebar_state)
-components.html(
-    """<script>
-    (function(){try{
-        if(window.parent.innerWidth<=768){
-            var btn=window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"] button');
-            if(btn) setTimeout(function(){btn.click();},300);
-        }
-    }catch(e){}})();
-    </script>""",
-    height=0,
 )
 
 
