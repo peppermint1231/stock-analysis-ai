@@ -1070,14 +1070,13 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame):
         merged = merged[~merged.index.duplicated(keep="last")]
         return merged
 
-    # 각 분봉별로 yfinance 최대 기간 데이터 수집
-    # yfinance 한도: 1m=7d, 5m/15m/30m/60m=60d
-    df_60 = calculate_indicators(_fetch_yf_intraday("60m", "60d"))
-    df_30 = calculate_indicators(_fetch_yf_intraday("30m", "60d"))
-    df_15 = calculate_indicators(_fetch_yf_intraday("15m", "60d"))
-    df_5 = calculate_indicators(_fetch_yf_intraday("5m", "60d"))
+    # 각 분봉별 기간: 60분=16주, 30분=8주, 15분=4주, 5분=2주, 1분=1주
+    df_60 = calculate_indicators(_fetch_yf_intraday("60m", "112d"))  # 16주
+    df_30 = calculate_indicators(_fetch_yf_intraday("30m", "56d"))   # 8주
+    df_15 = calculate_indicators(_fetch_yf_intraday("15m", "28d"))   # 4주
+    df_5 = calculate_indicators(_fetch_yf_intraday("5m", "14d"))     # 2주
 
-    # 1분봉: df_1m (이미 yfinance+KIS 합쳐진 데이터)
+    # 1분봉: 1주 (df_1m은 이미 yfinance 7d + KIS 당일)
     df_1 = calculate_indicators(df_1m.sort_index())
 
     return df_60, df_30, df_15, df_5, df_1
