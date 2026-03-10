@@ -460,7 +460,7 @@ def _render_sidebar() -> None:
     for name, (usd, diff, pct, krw, unit) in data.get("commodities", {}).items():
         label = f"{name} {unit}".strip()
         url = _SIDEBAR_URLS.get(name, "#")
-        st.sidebar.markdown(f"**[{label}]({url})**")
+        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{label}</a>", unsafe_allow_html=True)
         st.sidebar.metric(" ", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
         st.sidebar.markdown(
             f"<div style='color:gray;font-size:1.1em;margin-top:-10px;margin-bottom:10px;'>약 {krw:,.0f} 원</div>",
