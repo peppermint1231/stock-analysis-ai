@@ -278,10 +278,16 @@ def get_kospi_night_futures() -> dict | None:
 
         pct = (diff / value_day) * 100
 
-        ttime = str(info.get("ttime", ""))
+        ttime = str(info.get("ttime", "")).strip()
         time_str = ""
-        if len(ttime) >= 4:
+        if len(ttime) >= 6:
+            # HHMMSSxx → HH:MM:SS
+            time_str = f"{ttime[:2]}:{ttime[2:4]}:{ttime[4:6]}"
+        elif len(ttime) >= 4:
             time_str = f"{ttime[:2]}:{ttime[2:4]}"
+        # "30:00" 등 비정상 시간 보정 (시간 ≥ 24 → 무효)
+        if time_str and int(ttime[:2]) >= 24:
+            time_str = ""
 
         return {"price": price, "diff": diff, "pct": pct, "time": time_str}
 
@@ -338,13 +344,20 @@ def _render_sidebar() -> None:
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🌍 주요 시장 지수")
+
+    sidebar_auto = st.sidebar.toggle("🔄 자동 갱신 (30초)", key="sidebar_auto_refresh", value=False)
+    if sidebar_auto:
+        st_autorefresh(interval=30_000, limit=None, key="sidebar_refresh")
+        get_major_indices.clear()
+        get_kospi_night_futures.clear()
+
     data = get_major_indices()
 
     if not data:
         st.sidebar.caption("지수 데이터 로딩 실패")
         return
 
-    st.sidebar.caption(f"기준: {now_kst().strftime('%m/%d %H:%M')} (KST)")
+    st.sidebar.caption(f"기준: {now_kst().strftime('%m/%d %H:%M:%S')} (KST)")
 
     for name, (val, diff, pct) in data.get("indices", {}).items():
         url = _SIDEBAR_URLS.get(name, "#")
