@@ -1241,48 +1241,106 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
         merged = merged[(merged.index <= kst_now) & (merged.index.hour >= 9) & (merged.index.hour < 16)]
         return merged
 
-    def _apply_nxt(df: pd.DataFrame) -> pd.DataFrame:
-        """KRX 장외시간에 NXT 데이터를 별도 캔들로 추가합니다.
+    def _nxt_snapshots_to_candles(nxt_hist: pd.DataFrame, freq: str) -> pd.DataFrame:
+        """NXT 스냅샷(누적 OHLCV)을 개별 기간 캔들로 변환 후 리샘플링합니다.
 
-        1) Google Sheets에 저장된 과거 NXT 10분봉을 날짜별로 장외 시간에 보충
-        2) 당일은 실시간 NXT 스냅샷 사용
+        Google Sheets의 스냅샷은 누적 데이터(당일 시가/고가/저가, 누적 거래량)이므로
+        per-period OHLCV를 계산하고 대상 주기(freq)로 리샘플링합니다.
+        """
+        if nxt_hist.empty:
+            return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+        nxt = nxt_hist.sort_values("datetime").copy()
+        nxt = nxt.set_index("datetime")
+
+        frames = []
+        for _, group in nxt.groupby(nxt.index.date):
+            g = group.sort_index()
+            if len(g) < 1:
+                continue
+
+            # Close = 현재가 (스냅샷 시점 가격, 그대로 사용)
+            closes = g["close"]
+            # Open = 이전 스냅샷의 close (첫 행은 자기 close)
+            opens = closes.shift(1).fillna(closes.iloc[0])
+
+            # Volume = 누적 거래량 차이 (첫 행은 그대로)
+            vol_diff = g["volume"].diff().fillna(g["volume"].iloc[0]).clip(lower=0)
+
+            # High/Low: 당일 누적 고/저가 변화를 활용
+            day_high_up = g["high"].diff().fillna(0) > 0
+            day_low_dn = g["low"].diff().fillna(0) < 0
+
+            highs = pd.Series(
+                [max(o, c, h) if dh else max(o, c)
+                 for o, c, h, dh in zip(opens, closes, g["high"], day_high_up)],
+                index=g.index,
+            )
+            lows = pd.Series(
+                [min(o, c, lo) if dl else min(o, c)
+                 for o, c, lo, dl in zip(opens, closes, g["low"], day_low_dn)],
+                index=g.index,
+            )
+
+            candle = pd.DataFrame({
+                "Open": opens.values,
+                "High": highs.values,
+                "Low": lows.values,
+                "Close": closes.values,
+                "Volume": vol_diff.values,
+            }, index=g.index)
+            frames.append(candle)
+
+        if not frames:
+            return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+        candles = pd.concat(frames).sort_index()
+        candles = candles[candles["Volume"] > 0]
+        if candles.empty:
+            return candles
+
+        # 5분봉 이하면 리샘플링 불필요
+        if freq in ("5min", "5T", "1min", "1T"):
+            return candles
+
+        # 대상 주기로 리샘플링
+        resampled = candles.resample(freq).agg({
+            "Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum",
+        }).dropna(subset=["Close"])
+        return resampled
+
+    def _apply_nxt(df: pd.DataFrame, freq: str = "5min") -> pd.DataFrame:
+        """KRX 장외시간에 NXT 데이터를 적절한 시간 프레임 캔들로 추가합니다.
+
+        1) Google Sheets의 NXT 스냅샷 → 개별 캔들 변환 → freq로 리샘플링
+        2) 당일 실시간 NXT 스냅샷 (마지막 시트 이후 최신 데이터)
         """
         if df.empty:
             return df
 
-        # ── 1) 과거 NXT 데이터 (Google Sheets) ──
+        # ── 1) Google Sheets NXT 데이터 (과거 + 당일) ──
         try:
             from nxt_store import load_nxt_history
             nxt_hist = load_nxt_history(code=code, days=28)
             if not nxt_hist.empty:
-                # 장외 시간 NXT 캔들만: 16:00~08:59
+                # 장외 시간만: 16:00~08:59
                 nxt_hist = nxt_hist[
                     (nxt_hist["datetime"].dt.hour >= 16) | (nxt_hist["datetime"].dt.hour < 9)
                 ]
-                # 당일 제외 (당일은 실시간으로 처리)
-                nxt_hist = nxt_hist[nxt_hist["datetime"].dt.date < kst_now.date()]
                 if not nxt_hist.empty:
-                    nxt_rows = pd.DataFrame({
-                        "Open": nxt_hist["open"].values,
-                        "High": nxt_hist["high"].values,
-                        "Low": nxt_hist["low"].values,
-                        "Close": nxt_hist["close"].values,
-                        "Volume": nxt_hist["volume"].values,
-                    }, index=pd.DatetimeIndex(nxt_hist["datetime"].values))
-                    # 거래량 0인 행 제거
-                    nxt_rows = nxt_rows[nxt_rows["Volume"] > 0]
-                    if not nxt_rows.empty:
-                        df = pd.concat([df, nxt_rows]).sort_index()
+                    nxt_candles = _nxt_snapshots_to_candles(nxt_hist, freq)
+                    if not nxt_candles.empty:
+                        df = pd.concat([df, nxt_candles]).sort_index()
                         df = df[~df.index.duplicated(keep="last")]
         except Exception as e:
-            print(f"[_apply_nxt] 과거 NXT 로드 오류: {e}")
+            print(f"[_apply_nxt] NXT 로드 오류: {e}")
 
-        # ── 2) 당일 실시간 NXT ──
+        # ── 2) 당일 실시간 NXT (시트에 아직 없는 최신 데이터) ──
         if nxt_price <= 0:
             return df
-        last = df.index[-1]
         after_hours = kst_now.hour < 9 or kst_now.hour > 15 or (kst_now.hour == 15 and kst_now.minute >= 30)
         if after_hours:
+            last = df.index[-1] if not df.empty else kst_now
             nxt_ts = kst_now.replace(second=0, microsecond=0)
             if nxt_time and len(nxt_time) >= 4:
                 try:
@@ -1299,20 +1357,22 @@ def _get_multi_intraday_timeframe(code: str, df_1m: pd.DataFrame, _cache_date: s
                 "Volume": [nxt_vol],
             }, index=[nxt_ts])
             df = pd.concat([df, new_row])
+            df = df[~df.index.duplicated(keep="last")]
         else:
-            if nxt_vol > 0:
+            if nxt_vol > 0 and not df.empty:
+                last = df.index[-1]
                 df.at[last, "Volume"] = float(df.at[last, "Volume"]) + nxt_vol
         return df
 
     # 각 분봉별 기간: 60분=4주, 30분=2주, 15분=1주, 5분=3일, 1분=1일
-    df_60 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("60m", "28d")))   # 4주
-    df_30 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("30m", "14d")))   # 2주
-    df_15 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("15m", "7d")))    # 1주
-    df_5 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("5m", "3d")))      # 3일
+    df_60 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("60m", "28d"), freq="60min"))   # 4주
+    df_30 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("30m", "14d"), freq="30min"))   # 2주
+    df_15 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("15m", "7d"), freq="15min"))    # 1주
+    df_5 = calculate_indicators(_apply_nxt(_fetch_yf_intraday("5m", "3d"), freq="5min"))       # 3일
 
     # 1분봉: 1일 (KIS 당일 실시간만)
     df_1_raw = kis_today.copy() if not kis_today.empty else df_1m.sort_index()
-    df_1 = calculate_indicators(_apply_nxt(df_1_raw))
+    df_1 = calculate_indicators(_apply_nxt(df_1_raw, freq="1min"))
 
     return df_60, df_30, df_15, df_5, df_1
 
