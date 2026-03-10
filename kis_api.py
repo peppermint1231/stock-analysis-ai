@@ -180,7 +180,8 @@ def fetch_intraday_history(code: str, target_days: int = 7) -> pd.DataFrame:
         if yf_df.index.tz is not None:
             yf_df.index = yf_df.index.tz_convert("Asia/Seoul").tz_localize(None)
         yf_df = yf_df[["Open", "High", "Low", "Close", "Volume"]]
-        # 당일 yfinance 데이터 제거 (KIS 실시간으로 대체)
+        # 미래 데이터 제거 + 당일 yfinance 제거 (KIS 실시간으로 대체)
+        yf_df = yf_df[yf_df.index <= kst_now]
         yf_past = yf_df[yf_df.index.normalize() < pd.Timestamp(today_str)]
     else:
         yf_past = pd.DataFrame()
