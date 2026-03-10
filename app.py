@@ -35,7 +35,7 @@ from prompts import (
     generate_multi_timeframe_gemini_prompt,
 )
 from us_data import fetch_us_data, get_sp500_mapping, get_us_most_active, prepare_us_ranking_df
-from utils import calculate_indicators, resample_ohlcv
+from utils import calculate_indicators, resample_ohlcv, stamp_today_current_time
 
 # ─── NXT 5분봉 백그라운드 저장 시작 ──────────────────────────────────────────
 try:
@@ -1090,13 +1090,13 @@ def render_us_inputs_fragment(us_sorted_names, us_name_to_ticker, default_idx):
 def _get_multi_timeframe(code: str, df_daily: pd.DataFrame):
     d_cutoff = df_daily.index.max() - timedelta(days=365)
     # 지표를 원본 전체 데이터에 먼저 계산한 후, 필요한 기간(1년)만 잘라냅니다.
-    df_d = calculate_indicators(df_daily.sort_index()).loc[d_cutoff:]
+    df_d = stamp_today_current_time(calculate_indicators(df_daily.sort_index()).loc[d_cutoff:])
 
     w_cutoff = df_daily.index.max() - timedelta(days=3650)
     # 주봉도 전체로 리샘플링 후 계산하고 10년치만 잘라냅니다.
-    df_w = calculate_indicators(resample_ohlcv(df_daily, "W")).loc[w_cutoff:]
-    df_m = calculate_indicators(resample_ohlcv(df_daily, "ME"))
-    df_y = calculate_indicators(resample_ohlcv(df_daily, "YE"))
+    df_w = stamp_today_current_time(calculate_indicators(resample_ohlcv(df_daily, "W")).loc[w_cutoff:])
+    df_m = stamp_today_current_time(calculate_indicators(resample_ohlcv(df_daily, "ME")))
+    df_y = stamp_today_current_time(calculate_indicators(resample_ohlcv(df_daily, "YE")))
 
     return df_d, df_w, df_m, df_y
 
@@ -1500,7 +1500,7 @@ with tab_kr_indie:
                     df_final = df_kr.sort_index() if p == "D" else resample_ohlcv(df_kr, p)
                 else:
                     df_final = df_kr.sort_index()
-                df_final = calculate_indicators(df_final)
+                df_final = stamp_today_current_time(calculate_indicators(df_final))
                 elapsed = time.time() - t0
                 st.success(f"'{selected_name}' {interval_kr_sel} 분석 (⏱️ {elapsed:.2f}초)")
                 
@@ -1700,7 +1700,7 @@ with tab_us_indie:
                 df_final = df_us.sort_index() if p == "D" else resample_ohlcv(df_us, p)
             else:
                 df_final = df_us.sort_index()
-            df_final = calculate_indicators(df_final)
+            df_final = stamp_today_current_time(calculate_indicators(df_final))
             elapsed = time.time() - t0
             name_display = selected_us_name if us_name_to_ticker else us_ticker
             st.success(f"'{name_display}' {interval_us_sel} 분석 (⏱️ {elapsed:.2f}초)")

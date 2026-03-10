@@ -71,3 +71,26 @@ def resample_ohlcv(df: pd.DataFrame, period: str) -> pd.DataFrame:
             resampled.index = pd.DatetimeIndex(idx)
 
     return resampled
+
+
+def stamp_today_current_time(df: pd.DataFrame) -> pd.DataFrame:
+    """오늘 날짜의 바(00:00:00)를 현재 시각으로 교체합니다.
+
+    일봉/주봉/월봉/연봉 데이터에서 오늘 날짜의 타임스탬프가 자정으로 표시되는 것을
+    실제 현재 시각으로 바꿔줍니다.
+    """
+    if df is None or df.empty:
+        return df
+    from datetime import datetime, timedelta, timezone
+    kst_now = datetime.now(timezone(timedelta(hours=9))).replace(tzinfo=None)
+    today = kst_now.normalize() if hasattr(kst_now, "normalize") else pd.Timestamp(kst_now.date())
+    # 마지막 인덱스가 오늘이고 시각이 00:00:00이면 현재 시각으로 교체
+    last_ts = df.index[-1]
+    if isinstance(last_ts, pd.Timestamp):
+        last_date = last_ts.normalize()
+        if last_date == today and last_ts.hour == 0 and last_ts.minute == 0:
+            idx = df.index.tolist()
+            idx[-1] = pd.Timestamp(kst_now.replace(second=0, microsecond=0))
+            df = df.copy()
+            df.index = pd.DatetimeIndex(idx)
+    return df
