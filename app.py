@@ -112,7 +112,7 @@ st.markdown(
             min-height: 2.5rem !important;
         }
         [data-testid="stSidebarCollapsedControl"] button::before {
-            content: "\2630";
+            content: "☰";
             font-size: 1.3rem;
             font-family: system-ui, -apple-system, sans-serif !important;
         }
@@ -122,7 +122,7 @@ st.markdown(
             min-height: 2rem !important;
         }
         [data-testid="stSidebarCollapseButton"] button::before {
-            content: "\2715";
+            content: "✕";
             font-size: 1.1rem;
             font-family: system-ui, -apple-system, sans-serif !important;
         }
