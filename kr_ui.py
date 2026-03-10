@@ -565,8 +565,11 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.warning("시세 데이터를 가져올 수 없습니다. 장 외 시간이거나 네트워크를 확인해주세요.")
         return
 
+    naver_krx_url = f"https://finance.naver.com/item/main.naver?code={code}"
+    naver_nxt_url = f"https://finance.naver.com/item/nxt_main.naver?code={code}"
+
+    # ── KRX 현황 카드 ──
     if nav["ok"]:
-        # 장중(09:00~15:30)이면 "실시간 · 조회 HH:MM:SS", 장외면 "종가 · 조회 HH:MM:SS"
         _now_kst = datetime.now(_kst)
         _market_open = _now_kst.hour > 9 or (_now_kst.hour == 9 and _now_kst.minute >= 0)
         _market_close = _now_kst.hour > 15 or (_now_kst.hour == 15 and _now_kst.minute >= 30)
@@ -574,39 +577,48 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         if _is_market_hours:
             kis_trade_label = f"체결 {kis_fetch_time} · 실시간 무지연"
         else:
-            kis_trade_label = f"체결 15:30:00 종가 · 조회 {kis_fetch_time}"
-        st.markdown(f"**📡 한국투자증권 Open API** (KRX 기준 · {kis_trade_label})")
+            kis_trade_label = f"15:30 종가 · 조회 {kis_fetch_time}"
+
         sq = "+" if nav["rate"] > 0 else ""
-        col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
+        col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "#666"
+        bg_tint = "rgba(211,47,47,0.04)" if nav["rate"] > 0 else "rgba(25,118,210,0.04)" if nav["rate"] < 0 else "#fafafa"
+
         st.markdown(
-            f"<div style='font-size:0.85rem;color:gray;'>현재가</div>"
-            f"<div style='font-size:1.6rem;font-weight:bold;'>{nav['price']:,.0f} 원</div>"
-            f"<div style='color:{col_str};font-weight:bold;font-size:0.95rem;'>{sq}{nav['rate']:.2f}%</div>",
+            f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{bg_tint};margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <a href="{naver_krx_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">📡 KRX 현황</a>
+    <span style="font-size:0.75rem;color:#999;">{kis_trade_label}</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+    <span style="font-size:1.6rem;font-weight:bold;">{nav['price']:,.0f}<small style="font-size:0.8rem;"> 원</small></span>
+    <span style="color:{col_str};font-weight:bold;font-size:0.95rem;">{sq}{nav['diff']:,.0f} ({sq}{nav['rate']:.2f}%)</span>
+  </div>
+  <div style="display:flex;gap:20px;margin-top:10px;font-size:0.85rem;color:#555;">
+    <span>거래량 <b>{nav['vol']:,.0f}</b> 주</span>
+    <span>거래대금 <b>{nav['val']/1e8:,.1f}</b> 억원</span>
+  </div>
+</div>""",
             unsafe_allow_html=True,
         )
-        c2, c3, c4 = st.columns(3)
-        c2.metric("전일대비", f"{sq}{nav['diff']:,.0f} 원")
-        c3.metric("거래량", f"{nav['vol']:,.0f} 주" if nav["vol"] > 0 else "—")
-        c4.metric("거래대금", f"{nav['val']/1e8:,.1f} 억원" if nav["val"] > 0 else "—")
 
+        # 투자자 동향
         inv = _get_naver_investor_data(code)
         if inv and inv.get("date"):
-            st.markdown(f"**📈 주체별 순매수 동향 (기준: {inv['date']})**")
-            i1, i2, i3 = st.columns(3)
+            def _inv_badge(label: str, emoji: str, val: int) -> str:
+                c = "#D32F2F" if val > 0 else "#1976D2" if val < 0 else "#666"
+                s = f"+{val:,.0f}" if val > 0 else f"{val:,.0f}"
+                return f"<span style='display:inline-block;padding:4px 10px;border-radius:8px;background:#f5f5f5;font-size:0.82rem;margin-right:6px;'>{emoji} {label} <b style='color:{c};'>{s}</b></span>"
 
-            def _color_val(val: int) -> str:
-                if val > 0:
-                    return f"<span style='color:#D32F2F; font-weight:bold;'>+{val:,.0f}</span>"
-                if val < 0:
-                    return f"<span style='color:#1976D2; font-weight:bold;'>{val:,.0f}</span>"
-                return "0"
+            st.markdown(
+                f"<div style='margin:4px 0 12px;'>"
+                f"{_inv_badge('개인', '🧑', inv['개인'])}"
+                f"{_inv_badge('외국인', '🌍', inv['외국인'])}"
+                f"{_inv_badge('기관', '🏛️', inv['기관'])}"
+                f"<span style='font-size:0.7rem;color:#aaa;margin-left:4px;'>({inv['date']})</span></div>",
+                unsafe_allow_html=True,
+            )
 
-            i1.markdown(f"**🧑 개인**: {_color_val(inv['개인'])} 주", unsafe_allow_html=True)
-            i2.markdown(f"**🌍 외국인**: {_color_val(inv['외국인'])} 주", unsafe_allow_html=True)
-            i3.markdown(f"**🏛️ 기관**: {_color_val(inv['기관'])} 주", unsafe_allow_html=True)
-        st.text("")
-
-    # 조회시간 - 20분 = 실제 체결 추정 시점
+    # ── NXT 현황 카드 ──
     nxt_actual_time = ""
     if nxt_fetch_time:
         try:
@@ -614,32 +626,60 @@ def render_stock_nxt_card(code: str, name: str) -> None:
             nxt_actual_time = _nxt_dt.strftime("%H:%M:%S")
         except Exception:
             pass
-    nxt_actual_label = f"약 {nxt_actual_time} 체결분" if nxt_actual_time else ""
-    st.markdown(f"**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · 조회 {nxt_fetch_time} · {nxt_actual_label} · 20분 지연)")
+    nxt_time_label = f"~{nxt_actual_time} 체결 · 조회 {nxt_fetch_time}" if nxt_actual_time else f"조회 {nxt_fetch_time}"
+
     if nxt_row is not None:
         np_ = float(nxt_row["현재가"])
         nr = float(nxt_row["등락률"])
         nv = float(nxt_row["NXT거래량"])
         nva = float(nxt_row["NXT거래대금"])
         ns = "+" if nr > 0 else ""
-        n_col = "#D32F2F" if nr > 0 else "#1976D2" if nr < 0 else "inherit"
-        st.markdown(
-            f"<div style='font-size:0.85rem;color:gray;'>NXT 현재가</div>"
-            f"<div style='font-size:1.6rem;font-weight:bold;'>{np_:,.0f} 원</div>"
-            f"<div style='color:{n_col};font-weight:bold;font-size:0.95rem;'>{ns}{nr:.2f}%</div>",
-            unsafe_allow_html=True,
-        )
-        d2, d3 = st.columns(2)
-        d2.metric("NXT 거래량", f"{nv:,.0f} 주")
-        d3.metric("NXT 거래대금", f"{nva / 1e8:,.1f} 억원")
+        n_col = "#D32F2F" if nr > 0 else "#1976D2" if nr < 0 else "#666"
+        n_bg = "rgba(211,47,47,0.04)" if nr > 0 else "rgba(25,118,210,0.04)" if nr < 0 else "#fafafa"
+
+        nxt_share_html = ""
         if nav["ok"] and nav["vol"] > 0 and nv > 0:
             sh = nv / (nav["vol"] + nv) * 100
-            st.progress(min(sh / 100, 1.0), text=f"NXT 거래 비중 약 {sh:.1f}% (네이버 거래량 기준)")
+            bar_w = min(sh, 100)
+            nxt_share_html = (
+                f'<div style="margin-top:10px;">'
+                f'<div style="font-size:0.78rem;color:#888;margin-bottom:3px;">NXT 거래 비중 {sh:.1f}%</div>'
+                f'<div style="background:#e0e0e0;border-radius:6px;height:8px;overflow:hidden;">'
+                f'<div style="background:linear-gradient(90deg,#5c6bc0,#42a5f5);height:100%;width:{bar_w}%;border-radius:6px;"></div>'
+                f'</div></div>'
+            )
+
+        st.markdown(
+            f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:{n_bg};margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <a href="{naver_nxt_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
+    <span style="font-size:0.75rem;color:#999;">20분 지연 · {nxt_time_label}</span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+    <span style="font-size:1.6rem;font-weight:bold;">{np_:,.0f}<small style="font-size:0.8rem;"> 원</small></span>
+    <span style="color:{n_col};font-weight:bold;font-size:0.95rem;">{ns}{nr:.2f}%</span>
+  </div>
+  <div style="display:flex;gap:20px;margin-top:10px;font-size:0.85rem;color:#555;">
+    <span>거래량 <b>{nv:,.0f}</b> 주</span>
+    <span>거래대금 <b>{nva/1e8:,.1f}</b> 억원</span>
+  </div>
+  {nxt_share_html}
+</div>""",
+            unsafe_allow_html=True,
+        )
     else:
-        st.info("⏳ 해당 종목이 NXT 상위 200 종목에 포함되지 않아 NXT 단독 거래량을 확인할 수 없습니다.")
+        st.markdown(
+            f"""<div style="border:1px solid #e0e0e0;border-radius:12px;padding:16px 20px;background:#fafafa;margin-bottom:8px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <a href="{naver_nxt_url}" target="_blank" style="font-size:1.05rem;font-weight:700;text-decoration:none;color:#333;">🏛️ NXT 현황</a>
+    <span style="font-size:0.75rem;color:#999;">20분 지연</span>
+  </div>
+  <div style="color:#888;font-size:0.85rem;margin-top:8px;">상위 200 종목에 미포함 — NXT 단독 거래 데이터 없음</div>
+</div>""",
+            unsafe_allow_html=True,
+        )
         if nav["ok"]:
-            st.markdown(f"**💡 위 네이버 실시간 현재가({nav['price']:,.0f}원)에는 이미 NXT(넥스트레이드) 체결 가격과 거래량이 모두 포함되어 있습니다.**")
-    st.caption("⚡ [NXT 시장 현황 보기](https://www.nextrade.co.kr/menu/transactionStatusMain/menuList.do)")
+            st.caption(f"💡 네이버 현재가({nav['price']:,.0f}원)에는 NXT 체결분이 이미 포함되어 있습니다.")
 
 
 # ─── Naver Static Chart ───────────────────────────────────────────────────────

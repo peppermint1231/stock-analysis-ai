@@ -428,12 +428,13 @@ def _render_sidebar() -> None:
             kst_t = night.get("kst_time", "")
             ct_t = night.get("ct_time", "")
             ct_utc = night.get("ct_utc", "UTC-6")
-            lines = []
+            time_html = ""
             if kst_t:
-                lines.append(f"기준(KST) {kst_t} (UTC+9)")
+                time_html += f"(KST 기준 UTC+9) {kst_t}<br>"
             if ct_t:
-                lines.append(f"기준(CT) {ct_t} ({ct_utc})")
-            st.caption("\n".join(lines) if lines else "")
+                time_html += f"(CT 기준 {ct_utc})&nbsp;&nbsp;&nbsp;&nbsp; {ct_t}"
+            if time_html:
+                st.markdown(f"<small style='color:gray;line-height:1.6;'>{time_html}</small>", unsafe_allow_html=True)
             pct_sign = "+" if night["pct"] >= 0 else ""
             diff_sign = "+" if night["diff"] >= 0 else ""
             st.metric(
