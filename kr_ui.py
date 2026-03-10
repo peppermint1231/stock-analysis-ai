@@ -603,12 +603,20 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         st.text("")
 
     nxt_api_time = ""
+    nxt_actual_time = ""
     if nxt_row is not None:
         raw_t = str(nxt_row.get("NXT시간", "")).strip()
         if len(raw_t) >= 6:
             nxt_api_time = f"{raw_t[:2]}:{raw_t[2:4]}:{raw_t[4:6]}"
-    nxt_time_label = f"체결 {nxt_api_time} · " if nxt_api_time else ""
-    st.markdown(f"**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · {nxt_time_label}조회 {nxt_fetch_time} · 20분 지연)")
+            # 20분 지연 → 실제 체결 시점 계산
+            try:
+                _nxt_dt = datetime.strptime(raw_t[:6], "%H%M%S") - timedelta(minutes=20)
+                nxt_actual_time = _nxt_dt.strftime("%H:%M:%S")
+            except Exception:
+                pass
+    nxt_time_label = f"조회 {nxt_fetch_time} · " if nxt_fetch_time else ""
+    nxt_actual_label = f"실제 약 {nxt_actual_time} 체결분 · " if nxt_actual_time else ""
+    st.markdown(f"**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · {nxt_time_label}{nxt_actual_label}20분 지연)")
     if nxt_row is not None:
         np_ = float(nxt_row["현재가"])
         nr = float(nxt_row["등락률"])
