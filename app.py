@@ -361,7 +361,6 @@ def _render_sidebar() -> None:
             st.session_state.pop(key, None)
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🌍 주요 시장 지수")
 
     data = get_major_indices()
 
@@ -369,51 +368,67 @@ def _render_sidebar() -> None:
         st.sidebar.caption("지수 데이터 로딩 실패")
         return
 
-    st.sidebar.caption(f"기준: {now_kst().strftime('%m/%d %H:%M:%S')} (KST)")
+    # ── 블록 1: 주요 시장 지수 ─────────────────────────────────────────────────
+    with st.sidebar.container(border=True):
+        st.subheader("🌍 주요 시장 지수")
+        st.caption(f"기준: {now_kst().strftime('%m/%d %H:%M:%S')} (KST)")
+        for name, (val, diff, pct) in data.get("indices", {}).items():
+            url = _SIDEBAR_URLS.get(name, "#")
+            val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
+            st.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{name}</a>", unsafe_allow_html=True)
+            st.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
 
-    for name, (val, diff, pct) in data.get("indices", {}).items():
-        url = _SIDEBAR_URLS.get(name, "#")
-        val_fmt = f"{val:,.2f}" + (" 원" if "USD/KRW" in name else "")
-        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{name}</a>", unsafe_allow_html=True)
-        st.sidebar.metric(" ", val_fmt, f"{diff:,.2f} ({pct:+.2f}%)", label_visibility="collapsed")
-
-    # ── 코스피 야간선물 ─────────────────────────────────────────────────────────
-    night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
-    night = get_kospi_night_futures()
-    st.sidebar.markdown(f"<a href='{night_url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
-    if night:
-        kst_t = night.get("kst_time", "")
-        ct_t = night.get("ct_time", "")
-        ct_utc = night.get("ct_utc", "UTC-6")
-        lines = []
-        if kst_t:
-            lines.append(f"기준(KST) {kst_t} (UTC+9)")
-        if ct_t:
-            lines.append(f"기준(CT) {ct_t} ({ct_utc})")
-        st.sidebar.caption("\n".join(lines) if lines else "")
-        pct_sign = "+" if night["pct"] >= 0 else ""
-        diff_sign = "+" if night["diff"] >= 0 else ""
-        st.sidebar.metric(
-            " ",
-            f"{night['price']:,.2f}",
-            f"{diff_sign}{night['diff']:,.2f} ({pct_sign}{night['pct']:.2f}%)",
-            label_visibility="collapsed",
-        )
-    else:
-        fallback = get_kospi_futures_last()
-        if fallback:
-            fb_time = fallback.get("time", "")
-            st.sidebar.caption(f"야간장 미체결 · 최종 선물 데이터 ({fb_time})" if fb_time else "야간장 미체결 · 최종 선물 데이터")
-            pct_sign = "+" if fallback["pct"] >= 0 else ""
-            diff_sign = "+" if fallback["diff"] >= 0 else ""
-            st.sidebar.metric(
+    # ── 블록 2: KOSPI 야간선물 ─────────────────────────────────────────────────
+    with st.sidebar.container(border=True):
+        night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
+        night = get_kospi_night_futures()
+        st.markdown(f"<a href='{night_url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
+        if night:
+            kst_t = night.get("kst_time", "")
+            ct_t = night.get("ct_time", "")
+            ct_utc = night.get("ct_utc", "UTC-6")
+            lines = []
+            if kst_t:
+                lines.append(f"기준(KST) {kst_t} (UTC+9)")
+            if ct_t:
+                lines.append(f"기준(CT) {ct_t} ({ct_utc})")
+            st.caption("\n".join(lines) if lines else "")
+            pct_sign = "+" if night["pct"] >= 0 else ""
+            diff_sign = "+" if night["diff"] >= 0 else ""
+            st.metric(
                 " ",
-                f"{fallback['price']:,.2f}",
-                f"{diff_sign}{fallback['diff']:,.2f} ({pct_sign}{fallback['pct']:.2f}%)",
+                f"{night['price']:,.2f}",
+                f"{diff_sign}{night['diff']:,.2f} ({pct_sign}{night['pct']:.2f}%)",
                 label_visibility="collapsed",
             )
         else:
-            st.sidebar.caption("데이터 없음")
+            fallback = get_kospi_futures_last()
+            if fallback:
+                fb_time = fallback.get("time", "")
+                st.caption(f"야간장 미체결 · 최종 선물 데이터 ({fb_time})" if fb_time else "야간장 미체결 · 최종 선물 데이터")
+                pct_sign = "+" if fallback["pct"] >= 0 else ""
+                diff_sign = "+" if fallback["diff"] >= 0 else ""
+                st.metric(
+                    " ",
+                    f"{fallback['price']:,.2f}",
+                    f"{diff_sign}{fallback['diff']:,.2f} ({pct_sign}{fallback['pct']:.2f}%)",
+                    label_visibility="collapsed",
+                )
+            else:
+                st.caption("데이터 없음")
+
+    # ── 블록 3: 원자재 & 코인 ──────────────────────────────────────────────────
+    with st.sidebar.container(border=True):
+        st.subheader("💎 원자재 & 코인")
+        for name, (usd, diff, pct, krw, unit) in data.get("commodities", {}).items():
+            label = f"{name} {unit}".strip()
+            url = _SIDEBAR_URLS.get(name, "#")
+            st.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{label}</a>", unsafe_allow_html=True)
+            st.metric(" ", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
+            st.markdown(
+                f"<div style='color:gray;font-size:1.1em;margin-top:-10px;margin-bottom:10px;'>약 {krw:,.0f} 원</div>",
+                unsafe_allow_html=True,
+            )
 
     st.sidebar.markdown("---")
     with st.sidebar.expander("⚙️ KRX 세션 (쿠키) 관리", expanded=False):
@@ -460,17 +475,6 @@ def _render_sidebar() -> None:
             else:
                 st.warning("JSESSIONID 값을 입력하세요.")
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💎 원자재 & 코인")
-    for name, (usd, diff, pct, krw, unit) in data.get("commodities", {}).items():
-        label = f"{name} {unit}".strip()
-        url = _SIDEBAR_URLS.get(name, "#")
-        st.sidebar.markdown(f"<a href='{url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>{label}</a>", unsafe_allow_html=True)
-        st.sidebar.metric(" ", f"${usd:,.2f}", f"{pct:+.2f}%", label_visibility="collapsed")
-        st.sidebar.markdown(
-            f"<div style='color:gray;font-size:1.1em;margin-top:-10px;margin-bottom:10px;'>약 {krw:,.0f} 원</div>",
-            unsafe_allow_html=True,
-        )
 
 
 _render_sidebar()
