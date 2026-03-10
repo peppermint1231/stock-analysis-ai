@@ -548,13 +548,18 @@ def render_stock_nxt_card(code: str, name: str) -> None:
     if auto_on:
         st_autorefresh(interval=15_000, limit=None, key=f"nxt_card_refresh_{code}")
 
+    from datetime import datetime, timedelta, timezone
+    _kst = timezone(timedelta(hours=9))
+
     col_a, col_b = st.columns(2)
     with col_a:
         with st.spinner("한국투자증권 실시간 시세 조회 중..."):
             nav = _fetch_kis_realtime(code)
+            kis_fetch_time = datetime.now(_kst).strftime("%H:%M:%S")
     with col_b:
         with st.spinner("NXT 시세 조회 중 (20분 지연)..."):
             nxt_df = get_nxt_ranking(rows=200)
+            nxt_fetch_time = datetime.now(_kst).strftime("%H:%M:%S")
 
     nxt_row = nxt_df.loc[code] if (not nxt_df.empty and code in nxt_df.index) else None
 
@@ -566,7 +571,7 @@ def render_stock_nxt_card(code: str, name: str) -> None:
         return
 
     if nav["ok"]:
-        st.markdown("**📡 한국투자증권 Open API 실시간** (KRX 기준)")
+        st.markdown(f"**📡 한국투자증권 Open API 실시간** (KRX 기준 · 조회 {kis_fetch_time})")
         sq = "+" if nav["rate"] > 0 else ""
         col_str = "#D32F2F" if nav["rate"] > 0 else "#1976D2" if nav["rate"] < 0 else "inherit"
         st.markdown(
@@ -597,7 +602,13 @@ def render_stock_nxt_card(code: str, name: str) -> None:
             i3.markdown(f"**🏛️ 기관**: {_color_val(inv['기관'])} 주", unsafe_allow_html=True)
         st.text("")
 
-    st.markdown("**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · 20분 지연)")
+    nxt_api_time = ""
+    if nxt_row is not None:
+        raw_t = str(nxt_row.get("NXT시간", "")).strip()
+        if len(raw_t) >= 6:
+            nxt_api_time = f"{raw_t[:2]}:{raw_t[2:4]}:{raw_t[4:6]}"
+    nxt_time_label = f"체결 {nxt_api_time} · " if nxt_api_time else ""
+    st.markdown(f"**🏛️ NXT 단독 거래 데이터** (넥스트레이드 · {nxt_time_label}조회 {nxt_fetch_time} · 20분 지연)")
     if nxt_row is not None:
         np_ = float(nxt_row["현재가"])
         nr = float(nxt_row["등락률"])
