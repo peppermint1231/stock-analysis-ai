@@ -98,16 +98,20 @@ st.markdown(
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* Hide Material Symbols icon text that leaks on mobile */
-        .stButton>button span[data-testid="stIconMaterial"],
-        .stDownloadButton>button span[data-testid="stIconMaterial"],
-        button[kind] span.material-symbols-rounded,
-        .stButton>button .material-symbols-rounded,
-        .stDownloadButton>button .material-symbols-rounded,
-        span.material-symbols-rounded { font-size: 1.1rem !important; overflow: hidden !important; width: 1.2em !important; display: inline-block !important; vertical-align: middle !important; }
+        span.material-symbols-rounded,
+        [data-testid="stIconMaterial"] {
+            font-size: 1.1rem !important;
+            overflow: hidden !important;
+            width: 1.2em !important;
+            max-width: 1.2em !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+            line-height: 1 !important;
+        }
 
         /* Toast / alert icon overflow fix */
         div[data-testid="stToast"] span.material-symbols-rounded,
-        div[data-testid="stAlert"] span.material-symbols-rounded { overflow: hidden !important; width: 1.2em !important; }
+        div[data-testid="stAlert"] span.material-symbols-rounded { overflow: hidden !important; width: 1.2em !important; max-width: 1.2em !important; }
 
         /* Inputs */
         .stSelectbox>div[data-baseweb="select"] { width: 100%; }
@@ -136,11 +140,32 @@ st.markdown(
     }
 
     /* ── Global Material Symbols icon fix (all viewports) ────────────── */
-    span.material-symbols-rounded {
+    span.material-symbols-rounded,
+    [data-testid="stIconMaterial"] {
         overflow: hidden !important;
         display: inline-block !important;
         vertical-align: middle !important;
         text-overflow: clip !important;
+        max-width: 1.4em !important;
+        line-height: 1 !important;
+    }
+
+    /* Sidebar collapse button icon fix */
+    section[data-testid="stSidebar"] button span.material-symbols-rounded,
+    [data-testid="stSidebarCollapseButton"] span.material-symbols-rounded,
+    button[data-testid="stBaseButton-headerNoPadding"] span.material-symbols-rounded {
+        overflow: hidden !important;
+        max-width: 1.4em !important;
+        font-size: 1.2rem !important;
+    }
+
+    /* Expander arrow icon fix */
+    div[data-testid="stExpander"] summary span.material-symbols-rounded,
+    details summary span.material-symbols-rounded {
+        overflow: hidden !important;
+        max-width: 1.4em !important;
+        font-size: 1rem !important;
+        width: 1.2em !important;
     }
 
     /* ── Tablet breakpoint ──────────────────────────────────────────────── */
