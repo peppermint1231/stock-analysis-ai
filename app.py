@@ -1192,8 +1192,12 @@ with tab_kr_indie:
                 start_date_kr = datetime.combine(start_date_kr, datetime.min.time())
             if hasattr(end_date_kr, 'hour') is False:
                 end_date_kr = datetime.combine(end_date_kr, datetime.min.time())
-            fetch_int_kr = "1분 (1 Minute)" if interval_kr_sel == "시간/분봉 종합분석" else interval_kr_sel
-            start_date_kr = clamp_intraday_dates(fetch_int_kr, start_date_kr, end_date_kr)
+            if interval_kr_sel == "시간/분봉 종합분석":
+                fetch_int_kr = "1분 (1 Minute)"
+                # 종합분석은 KIS API 분봉 한계(~8영업일)만큼 자동 수집하므로 날짜 제한 경고 불필요
+            else:
+                fetch_int_kr = interval_kr_sel
+                start_date_kr = clamp_intraday_dates(fetch_int_kr, start_date_kr, end_date_kr)
             s_str = start_date_kr.strftime("%Y%m%d")
             e_str = end_date_kr.strftime("%Y%m%d")
             run_nxt = st.session_state.get("run_krx_nxt", False)

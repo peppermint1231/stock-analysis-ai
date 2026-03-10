@@ -95,17 +95,21 @@ def get_current_price(code: str) -> dict | None:
 # ─── 분봉 이력 ─────────────────────────────────────────────────────────────────
 
 def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
-    """당일 및 과거 분봉 데이터를 조회합니다 (최대 target_days 분량).
+    """당일 및 과거 분봉 데이터를 조회합니다 (최대 target_days 영업일 분량).
 
     KIS API는 1회 요청당 약 30개 레코드를 반환하므로 페이지네이션으로 수집합니다.
+    FID_PW_DATA_INCU_YN=Y 로 과거 날짜 데이터도 포함합니다.
     """
     url = f"{DOMAIN}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
     headers = _base_headers("FHKST03010200")
 
     all_records: list = []
     last_time = "153000"
+    seen_keys: set = set()  # (date, time) 중복 방지
+    cutoff_date = (datetime.now(tz=_KST) - timedelta(days=target_days + 4)).strftime("%Y%m%d")
+    stale_count = 0  # 새 레코드가 없는 연속 횟수
 
-    for _ in range(100):  # 최대 100회 = ~3,000개 레코드 (~8일치 1분봉)
+    for _ in range(200):  # 최대 200회 = ~6,000개 레코드 (~15일치 1분봉)
         params = {
             "FID_ETC_CLS_CODE": "",
             "FID_COND_MRKT_DIV_CODE": "J",
@@ -122,9 +126,27 @@ def fetch_intraday_history(code: str, target_days: int = 5) -> pd.DataFrame:
             records = data.get("output2", [])
             if not records:
                 break
-            if all_records and records[0] == all_records[-1]:
+
+            new_count = 0
+            for r in records:
+                key = (r.get("stck_bsop_date", ""), r.get("stck_cntg_hour", ""))
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    all_records.append(r)
+                    new_count += 1
+
+            if new_count == 0:
+                stale_count += 1
+                if stale_count >= 3:
+                    break
+            else:
+                stale_count = 0
+
+            # 날짜 기준 종료 체크
+            oldest_date = min(r.get("stck_bsop_date", "99999999") for r in records)
+            if oldest_date <= cutoff_date:
                 break
-            all_records.extend(records)
+
             last_time = records[-1].get("stck_cntg_hour", "090000")
             time.sleep(0.1)
         except Exception as e:
