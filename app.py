@@ -97,40 +97,29 @@ st.markdown(
         .stButton>button { width: 100%; padding: 0.5rem !important; font-size: 0.85rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .stDownloadButton>button { width: 100%; font-size: 0.8rem !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* Material Symbols — completely hide icon text on mobile */
+        /* Material Symbols — hide icon NAME text, show SVG icon instead */
         span.material-symbols-rounded,
         [data-testid="stIconMaterial"] {
-            display: none !important;
-            visibility: hidden !important;
-            width: 0 !important;
-            height: 0 !important;
+            font-size: 0 !important;
+            color: transparent !important;
+            display: inline-block !important;
+            width: 24px !important;
+            height: 24px !important;
             overflow: hidden !important;
+            background-size: contain !important;
+            background-repeat: no-repeat !important;
+            background-position: center !important;
+            /* Default: 3-line hamburger menu SVG */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z'/%3E%3C/svg%3E") !important;
         }
-        /* Sidebar open button (hamburger) — try multiple selectors */
-        [data-testid="collapsedControl"] button,
-        [data-testid="stSidebarCollapsedControl"] button,
-        [data-testid="collapsedControl"],
-        [data-testid="stSidebarCollapsedControl"] {
-            min-width: 2.5rem !important;
-            min-height: 2.5rem !important;
+        /* Close button inside sidebar — show X icon */
+        [data-testid="stSidebarCollapseButton"] span.material-symbols-rounded,
+        [data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M18.3 5.7a1 1 0 00-1.4 0L12 10.6 7.1 5.7a1 1 0 00-1.4 1.4L10.6 12l-4.9 4.9a1 1 0 101.4 1.4L12 13.4l4.9 4.9a1 1 0 001.4-1.4L13.4 12l4.9-4.9a1 1 0 000-1.4z'/%3E%3C/svg%3E") !important;
         }
-        [data-testid="collapsedControl"] button::before,
-        [data-testid="stSidebarCollapsedControl"] button::before,
-        [data-testid="collapsedControl"]::before,
-        [data-testid="stSidebarCollapsedControl"]::before {
-            content: "☰";
-            font-size: 1.3rem;
-            font-family: system-ui, -apple-system, sans-serif !important;
-        }
-        /* Sidebar close button (X) */
-        [data-testid="stSidebarCollapseButton"] button {
-            min-width: 2rem !important;
-            min-height: 2rem !important;
-        }
-        [data-testid="stSidebarCollapseButton"] button::before {
-            content: "✕";
-            font-size: 1.1rem;
-            font-family: system-ui, -apple-system, sans-serif !important;
+        /* Expander arrow — show chevron down */
+        div[data-testid="stExpander"] span.material-symbols-rounded {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23555'%3E%3Cpath d='M7.4 8.6L12 13.2l4.6-4.6L18 10l-6 6-6-6z'/%3E%3C/svg%3E") !important;
         }
 
         /* Inputs */
