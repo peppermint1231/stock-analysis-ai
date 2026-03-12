@@ -37,6 +37,15 @@ from prompts import (
 from us_data import fetch_us_data, get_sp500_mapping, get_us_most_active, prepare_us_ranking_df
 from utils import calculate_indicators, resample_ohlcv, stamp_today_current_time
 
+query = st.query_params
+if query.get("mode") == "night_futures":
+    data = get_kospi_night_futures()
+    if data:
+        st.markdown(f'NIGHT_FUTURES_DATA:{data["price"]}|{data["diff"]}|{data["pct"]:.2f}|{data["kst_time"]}')
+    else:
+        st.markdown("NIGHT_FUTURES_DATA:ERROR")
+    st.stop()
+
 # ─── NXT 5분봉 백그라운드 저장 시작 ──────────────────────────────────────────
 try:
     from krx_data import get_nxt_ranking as _nxt_fetch_for_store
