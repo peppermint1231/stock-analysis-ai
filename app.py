@@ -363,10 +363,8 @@ def get_kospi_night_futures() -> dict | None:
         return None
 
 def _update_gist_night_futures(data):
-    """야간선물 데이터를 GitHub Gist에 업데이트 (Claude 조회용)"""
+    """야간선물 데이터를 npoint.io + GitHub Gist에 업데이트 (Claude 조회용)"""
     try:
-        _GIST_ID = "8dedc5661ba1324351905520021b8fc0"
-        _GH_TOKEN = "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"
         content = json.dumps({
             "price": data["price"], "diff": data["diff"],
             "pct": round(data["pct"], 2),
@@ -374,9 +372,16 @@ def _update_gist_night_futures(data):
             "ct_time": data.get("ct_time", ""),
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False)
+        # npoint.io 업데이트
+        requests.post(
+            "https://api.npoint.io/a61cd6929b68b277c0a4",
+            headers={"Content-Type": "application/json"},
+            data=content, timeout=5,
+        )
+        # Gist 백업
         requests.patch(
-            f"https://api.github.com/gists/{_GIST_ID}",
-            headers={"Authorization": f"token {_GH_TOKEN}", "Accept": "application/vnd.github.v3+json"},
+            "https://api.github.com/gists/8dedc5661ba1324351905520021b8fc0",
+            headers={"Authorization": "token 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", "Accept": "application/vnd.github.v3+json"},
             json={"files": {"night_futures.json": {"content": content}}},
             timeout=5,
         )
