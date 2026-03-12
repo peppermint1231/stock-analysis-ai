@@ -362,6 +362,26 @@ def get_kospi_night_futures() -> dict | None:
     except Exception:
         return None
 
+def _update_gist_night_futures(data):
+    """야간선물 데이터를 GitHub Gist에 업데이트 (Claude 조회용)"""
+    try:
+        _GIST_ID = "8dedc5661ba1324351905520021b8fc0"
+        _GH_TOKEN = "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"
+        content = json.dumps({
+            "price": data["price"], "diff": data["diff"],
+            "pct": round(data["pct"], 2),
+            "kst_time": data.get("kst_time", ""),
+            "ct_time": data.get("ct_time", ""),
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }, ensure_ascii=False)
+        requests.patch(
+            f"https://api.github.com/gists/{_GIST_ID}",
+            headers={"Authorization": f"token {_GH_TOKEN}", "Accept": "application/vnd.github.v3+json"},
+            json={"files": {"night_futures.json": {"content": content}}},
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 @st.cache_data(ttl=300)
 def get_kospi_futures_last() -> dict | None:
@@ -432,6 +452,8 @@ def _render_sidebar() -> None:
     with st.sidebar.container(border=True):
         night_url = _SIDEBAR_URLS["🌙 KOSPI 야간선물"]
         night = get_kospi_night_futures()
+        if night:
+            _update_gist_night_futures(night)
         st.markdown(f"<a href='{night_url}' style='font-size:1.4rem;font-weight:bold;text-decoration:none;'>🌙 KOSPI 야간선물</a>", unsafe_allow_html=True)
         if night:
             kst_t = night.get("kst_time", "")
